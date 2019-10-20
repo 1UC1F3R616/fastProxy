@@ -2,4 +2,4 @@
 
 # PROXY-TUNNEL
 will start work on this very soon.
-- FINISH BY 13 OCT 2019
+- FINISH BY 2019 DECEMBER
