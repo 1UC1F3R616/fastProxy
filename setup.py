@@ -2,13 +2,13 @@ from distutils.core import setup
 setup(
   name = 'fastProxy',      
   packages = ['fastProxy'],  
-  version = '0.1.2',      
+  version = '0.1.3',      
   license='MIT',        
   description = 'Async application to get Free Working Proxies quickly',  
   author = '1UC1F3R616',                  
   author_email = 'kushchoudhary8@gmail.com',      
   url = 'https://github.com/1UC1F3R616/fastProxy',   
-  download_url = 'https://github.com/1UC1F3R616/fastProxy/archive/v_01.2.tar.gz',   
+  download_url = 'https://github.com/1UC1F3R616/fastProxy/archive/v_01.3.tar.gz',   
   keywords = ['proxy', 'free', 'Asynchronous', 'Threaded', 'Python3'],  
   install_requires=[           
           'bs4',
