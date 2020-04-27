@@ -28,16 +28,54 @@
 pip install fastProxy==0.1.2
 ```
 ### git clone
-```bash
+```text
 git clone https://github.com/1UC1F3R616/fastProxy.git
+cd fastProxy/
 pip install -r requirements.txt
 ```
 
 ## Run using CLI
-...
+#### Default run
+- Threads: 100
+- Request Timeout: 4sec
+```bash
+python fastProxy.py 
+```
+#### Aletered Parameters
+
+| Flag        | Usage           | Purpose  |  Default  |  Usage  |
+| ------------- |:-------------:|:-----:|:-----:|:-----:|
+| c     | Thread Count | Increase Testing Speed |   100 | `--c=16`  |
+| t      | Request Timeout in sec    |   Give Faster Proxy when set to lower Values | 4 | `--t=20`  |
+| g | Generate CSV      |  Generate CSV of Working proxy only with user flags| False | `--g` |
+| a | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False | `--a` |
+
+```bash
+python fastProxy.py --c=256 --t=2 --g --a 
+```
 
 ## Run by import
-...
+- Set Flags or Default Values are Taken
 
+| Flag        | Usage           | Purpose  |  Default  |
+| ------------- |:-------------:|:-----:|:-----:|
+| THREAD_COUNT     | Thread Count | Increase Testing Speed |   100 |
+| REQUEST_TIMEOUT      | Request Timeout in sec    |   Give Faster Proxy when set to lower Values | 4 |
+| GENERATE_CSV | Generate CSV      |  Generate CSV of Working proxy only with user flags| False |
+| ALL_IPS | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False |
+
+```py
+import fastProxy
+
+fastProxy.THREAD_COUNT = 128
+fastProxy.REQUEST_TIMEOUT = 3
+fastProxy.GENERATE_CSV = True
+fastProxy.ALL_IPS = True
+
+myProxyList = fastProxy.fetch_proxies()
+
+print(myProxyList)
+```
+</br>
 
 [![LinkedIn](https://img.shields.io/static/v1.svg?label=Connect&message=@Kush&color=grey&logo=linkedin&labelColor=blue&style=social)](https://www.linkedin.com/in/kush-choudhary-567b38169?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BDYkgbUGhTniMSRqOUkdN3A%3D%3D)
