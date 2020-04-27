@@ -102,3 +102,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+tester1.py
+working_ips.csv
+all_proxies.csv
