@@ -57,22 +57,17 @@ python fastProxy.py --c=256 --t=2 --g --a
 ## Run by import
 - Set Flags or Default Values are Taken
 
-| Flag        | Usage           | Purpose  |  Default  |
-| ------------- |:-------------:|:-----:|:-----:|
-| THREAD_COUNT     | Thread Count | Increase Testing Speed |   100 |
-| REQUEST_TIMEOUT      | Request Timeout in sec    |   Give Faster Proxy when set to lower Values | 4 |
-| GENERATE_CSV | Generate CSV      |  Generate CSV of Working proxy only with user flags| False |
-| ALL_IPS | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False |
+| Flag        | Usage           | Purpose  |  Default  | Usage|
+| ------------- |:-------------:|:-----:|:-----:|:-----:|
+| c     | Thread Count | Increase Testing Speed |   100 | `c=256`|
+| t      | Request Timeout in sec    |   Give Faster Proxy when set to lower Values| 4 | `t=2` |
+| g | Generate CSV      |  Generate CSV of Working proxy only with user flags| False | `g=True`|
+| a | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False | `a=True`|
 
 ```py
 import fastProxy
 
-fastProxy.THREAD_COUNT = 128
-fastProxy.REQUEST_TIMEOUT = 3
-fastProxy.GENERATE_CSV = True
-fastProxy.ALL_IPS = True
-
-myProxyList = fastProxy.fetch_proxies()
+myProxyList = fastProxy.fetch_proxies(c=128, t=2, g=True, a=True)
 
 print(myProxyList)
 ```
