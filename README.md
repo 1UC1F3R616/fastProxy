@@ -25,7 +25,7 @@
 ## Installation
 ### pip install
 ```bash
-pip install fastProxy
+pip install fastProxy==0.1.2
 ```
 ### git clone
 ```bash
