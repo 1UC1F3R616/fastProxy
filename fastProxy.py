@@ -12,7 +12,7 @@ page = soup(r1.text, 'html.parser')
 tr_container = page.find_all('tr')
 
 url = 'https://httpbin.org/ip' # End-Point to Test the response speed of ip address
-ips = page.find_all('tr')[1:100] # This is to skip the 1st header and take the leftout content. but it does contain some garbage
+ips = page.find_all('tr')[1:] # This is to skip the 1st header and take the leftout content. but it does contain some garbage
 
 alive_queue = Queue() # It will collect the working ips
 
@@ -87,11 +87,14 @@ class alive_ip(threading.Thread):
         """Checks if Proxy is Alive"""
         
         try:
-            r2 = requests.get(url, proxies={'http':proxy, 'https':proxy}, timeout=REQUEST_TIMEOUT)
+            http_proxy = "http://{}".format(proxy)
+            https_proxy = "https://{}".format(proxy)
+            r2 = requests.get(url, proxies={'http':http_proxy, 'https':https_proxy}, timeout=REQUEST_TIMEOUT)
+            
             if r2.status_code == 200:
                 alive_queue.put(proxy)
                 
-        except:
+        except Exception as e:
             pass
 
 
@@ -115,8 +118,11 @@ def main(proxies = ips):
                 ip, port = content[0].get_text(), content[1].get_text()
                 proxy_ = '{}:{}'.format(ip, port)
                 queue.put(proxy_)
+
+        except IndexError:
+            pass # List Index Out of Range
         except Exception as e:
-            print(e)
+            print('[!] ' + str(e))
 
     # wait for queue to finish
     queue.join()
@@ -146,7 +152,8 @@ def printer(ip_list = list(alive_queue.queue)):
     """
     Prints the IP Address of working IPs
     """
-    for ip in ip_list:
+
+    for ip in list(alive_queue.queue):
         print(ip)
 
 
@@ -163,15 +170,11 @@ def fetch_proxies():
 if __name__ == "__main__":
 
     fire.Fire(alter_globals)
-    
+
     main(proxies = ips)
+
     printer()
 
     if GENERATE_CSV == True:
         generate_csv()
 
-
-# proxy filteration by 'country'
-# code to refresh proxy list in every x minutes
-# 1 way is as import (importing)
-# 2nd way is as a command line tool (cli)
