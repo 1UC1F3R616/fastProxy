@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'fastProxy',      
   packages = ['fastProxy'],  
-  version = '0.1',      
+  version = '0.1.1',      
   license='MIT',        
   description = 'Async application to get Free Working Proxies quickly',  
   author = '1UC1F3R616',                  
