@@ -8,7 +8,7 @@ setup(
   author = '1UC1F3R616',                  
   author_email = 'kushchoudhary8@gmail.com',      
   url = 'https://github.com/1UC1F3R616/fastProxy',   
-  download_url = 'https://github.com/1UC1F3R616/fastProxy/archive/v_01.1.tar.gz',   
+  download_url = 'https://github.com/1UC1F3R616/fastProxy/archive/v_01.2.tar.gz',   
   keywords = ['proxy', 'free', 'Asynchronous', 'Threaded', 'Python3'],  
   install_requires=[           
           'bs4',
