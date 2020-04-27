@@ -157,7 +157,19 @@ def printer(ip_list = list(alive_queue.queue)):
         print(ip)
 
 
-def fetch_proxies():
+def fetch_proxies(c=100, t=4, g=False, a=False):
+    """
+    Function for import
+    """
+    global THREAD_COUNT
+    global REQUEST_TIMEOUT
+    global GENERATE_CSV
+    global ALL_IPS
+
+    THREAD_COUNT = c
+    REQUEST_TIMEOUT = t
+    GENERATE_CSV = g
+    ALL_IPS = a
 
     working_ips = main(proxies = ips)
 
