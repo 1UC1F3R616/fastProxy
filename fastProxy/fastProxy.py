@@ -95,62 +95,68 @@ class alive_ip(threading.Thread):
             self.check_proxy(proxy_data)
             self.queue.task_done()
 
-def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50):
+def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
     """Main function to fetch and validate proxies"""
     alter_globals(c, t, g, a)
 
     try:
         logger.info("Starting proxy fetching process...")
-        logger.debug("Fetching proxy list from source...")
-        s = requests.session()
-        r = s.get(PROXY_SOURCE)
-        if r.status_code != 200:
-            logger.error(f"Failed to fetch proxies: {r.status_code}")
+
+        if proxies:
+            # If proxies are provided, use them directly
+            proxy_list = proxies
+        else:
+            # Fetch proxies from source
+            logger.debug("Fetching proxy list from source...")
+            s = requests.session()
+            r = s.get(PROXY_SOURCE)
+            if r.status_code != 200:
+                logger.error(f"Failed to fetch proxies: {r.status_code}")
+                return []
+
+            page = soup(r.text, 'html.parser')
+            tables = page.find_all('table')
+            proxy_table = None
+            for table in tables:
+                headers = [th.get_text().strip() for th in table.find_all('th')]
+                if 'IP Address' in headers and 'Port' in headers:
+                    proxy_table = table
+                    break
+
+            if not proxy_table:
+                logger.error("Could not find proxy table in source")
+                return []
+
+            proxy_list = []
+            rows = proxy_table.find_all('tr')[1:]  # Skip header row
+            rows = rows[:max_proxies]  # Limit number of proxies to test
+
+            logger.info(f"Found {len(rows)} potential proxy entries (limited to {max_proxies})")
+            for row in rows:
+                try:
+                    cols = row.find_all('td')
+                    if len(cols) >= 8:  # Ensure all columns are present
+                        proxy_data = {
+                            'ip': cols[0].get_text().strip(),
+                            'port': cols[1].get_text().strip(),
+                            'code': cols[2].get_text().strip(),
+                            'country': cols[3].get_text().strip(),
+                            'anonymity': cols[4].get_text().strip(),
+                            'google': cols[5].get_text().strip().lower() == 'yes',
+                            'https': cols[6].get_text().strip().lower() == 'yes',
+                            'last_checked': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                        if proxy_data['ip'] and proxy_data['port'].isdigit():
+                            proxy_list.append(proxy_data)
+                except Exception as e:
+                    logger.error(f"Error parsing proxy row: {str(e)}")
+                    continue
+
+        if not proxy_list:
+            logger.warning("No valid proxies found")
             return []
 
-        page = soup(r.text, 'html.parser')
-        tables = page.find_all('table')
-        proxy_table = None
-        for table in tables:
-            headers = [th.get_text().strip() for th in table.find_all('th')]
-            if 'IP Address' in headers and 'Port' in headers:
-                proxy_table = table
-                break
-
-        if not proxy_table:
-            logger.error("Could not find proxy table in source")
-            return []
-
-        proxies = []
-        rows = proxy_table.find_all('tr')[1:]  # Skip header row
-        rows = rows[:max_proxies]  # Limit number of proxies to test
-
-        logger.info(f"Found {len(rows)} potential proxy entries (limited to {max_proxies})")
-        for row in rows:
-            try:
-                cols = row.find_all('td')
-                if len(cols) >= 8:  # Ensure all columns are present
-                    proxy_data = {
-                        'ip': cols[0].get_text().strip(),
-                        'port': cols[1].get_text().strip(),
-                        'code': cols[2].get_text().strip(),
-                        'country': cols[3].get_text().strip(),
-                        'anonymity': cols[4].get_text().strip(),
-                        'google': cols[5].get_text().strip().lower() == 'yes',
-                        'https': cols[6].get_text().strip().lower() == 'yes',
-                        'last_checked': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    if proxy_data['ip'] and proxy_data['port'].isdigit():
-                        proxies.append(proxy_data)
-            except Exception as e:
-                logger.error(f"Error parsing proxy row: {str(e)}")
-                continue
-
-        if not proxies:
-            logger.warning("No valid proxies found in source")
-            return []
-
-        logger.info(f"Successfully parsed {len(proxies)} valid proxies")
+        logger.info(f"Successfully parsed {len(proxy_list)} valid proxies")
 
         queue = Queue()
         threads = []
@@ -164,7 +170,7 @@ def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50):
             threads.append(t)
 
         # Add proxies to queue
-        for proxy in proxies:
+        for proxy in proxy_list:
             queue.put(proxy)
 
         # Add None to queue to signal thread termination
@@ -238,4 +244,4 @@ def main(proxies=None):
     return fetch_proxies(proxies=proxies)
 
 if __name__ == '__main__':
-    fire.Fire(fetch_proxies)
+    fire.Fire(main)
