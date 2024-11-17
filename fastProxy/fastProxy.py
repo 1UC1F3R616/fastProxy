@@ -179,5 +179,11 @@ def printer():
     for proxy in working_proxies:
         print(proxy)
 
+def main(proxies=None):
+    """CLI entry point"""
+    if proxies is None:
+        return fetch_proxies()
+    return fetch_proxies(proxies=proxies)
+
 if __name__ == '__main__':
-    fire.Fire(main)
+    fire.Fire(fetch_proxies)
