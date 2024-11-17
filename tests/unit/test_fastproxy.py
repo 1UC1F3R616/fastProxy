@@ -21,15 +21,18 @@ class TestFastProxy:
         self.original_all = ALL_PROXIES
 
         # Reset to default values before each test
-        alter_globals(c=100, t=4, g=False, a=False)
+        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+        THREAD_COUNT = 100
+        REQUEST_TIMEOUT = 4
+        GENERATE_CSV = False
+        ALL_PROXIES = False
         yield
+
         # Restore original values after test
-        alter_globals(
-            c=self.original_thread_count,
-            t=self.original_timeout,
-            g=self.original_csv,
-            a=self.original_all
-        )
+        THREAD_COUNT = self.original_thread_count
+        REQUEST_TIMEOUT = self.original_timeout
+        GENERATE_CSV = self.original_csv
+        ALL_PROXIES = self.original_all
 
     @pytest.fixture
     def mock_proxy_data(self):
@@ -61,20 +64,25 @@ class TestFastProxy:
         return queue
 
     def test_alter_globals(self):
-        # Test with all parameters
-        alter_globals(c=100, t=5, g=True, a=True)
+        # First test: verify initial state
         assert THREAD_COUNT == 100
+        assert REQUEST_TIMEOUT == 4
+        assert GENERATE_CSV is False
+        assert ALL_PROXIES is False
+
+        # Second test: change all parameters
+        alter_globals(c=200, t=5, g=True, a=True)
+        assert THREAD_COUNT == 200
         assert REQUEST_TIMEOUT == 5
         assert GENERATE_CSV is True
         assert ALL_PROXIES is True
 
-        # Reset and test with partial parameters
-        alter_globals(c=100, t=4, g=False, a=False)  # Reset first
+        # Third test: change only some parameters
         alter_globals(c=50)
         assert THREAD_COUNT == 50
-        assert REQUEST_TIMEOUT == 4  # Should remain unchanged
-        assert GENERATE_CSV is False  # Should remain unchanged
-        assert ALL_PROXIES is False  # Should remain unchanged
+        assert REQUEST_TIMEOUT == 5  # Should remain unchanged
+        assert GENERATE_CSV is True  # Should remain unchanged
+        assert ALL_PROXIES is True  # Should remain unchanged
 
     @patch('requests.get')
     def test_alive_ip_check_proxy(self, mock_get):
@@ -107,6 +115,18 @@ class TestFastProxy:
 
         # Test both HTTP and HTTPS failure
         mock_get.side_effect = requests.exceptions.RequestException("Both failed")
+        assert thread.check_proxy(proxy_data) is False
+
+        # Test unexpected exception in HTTPS request
+        mock_get.side_effect = [
+            requests.exceptions.RequestException("HTTP failed"),
+            Exception("Unexpected error")
+        ]
+        assert thread.check_proxy(proxy_data) is False
+
+        # Test non-200 status code
+        mock_get.side_effect = None
+        mock_get.return_value = MagicMock(status_code=404)
         assert thread.check_proxy(proxy_data) is False
 
     @patch('requests.session')
@@ -262,6 +282,121 @@ class TestFastProxy:
             result = main(proxies=proxy_list)
             assert isinstance(result, list)
             assert len(result) == 0
+
+    def test_table_parsing_edge_cases(self):
+        """Test edge cases in proxy table parsing"""
+        with patch('requests.session') as mock_session:
+            # Test missing columns
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = '''
+            <table>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Port</th>
+                </tr>
+                <tr>
+                    <td>127.0.0.1</td>
+                    <td>8080</td>
+                </tr>
+            </table>
+            '''
+            mock_session.return_value.get.return_value = mock_response
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
+
+            # Test invalid port
+            mock_response.text = '''
+            <table>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Port</th>
+                    <th>Code</th>
+                    <th>Country</th>
+                    <th>Anonymity</th>
+                    <th>Google</th>
+                    <th>Https</th>
+                    <th>Last Checked</th>
+                </tr>
+                <tr>
+                    <td>127.0.0.1</td>
+                    <td>invalid</td>
+                    <td>US</td>
+                    <td>United States</td>
+                    <td>elite proxy</td>
+                    <td>yes</td>
+                    <td>yes</td>
+                    <td>1 minute ago</td>
+                </tr>
+            </table>
+            '''
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
+
+    def test_thread_management_edge_cases(self):
+        """Test thread management edge cases"""
+        with patch('requests.session') as mock_session, \
+             patch('threading.Thread') as mock_thread, \
+             patch('time.time') as mock_time:
+
+            # Setup mock response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = '''
+            <table>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Port</th>
+                    <th>Code</th>
+                    <th>Country</th>
+                    <th>Anonymity</th>
+                    <th>Google</th>
+                    <th>Https</th>
+                    <th>Last Checked</th>
+                </tr>
+                <tr>
+                    <td>127.0.0.1</td>
+                    <td>8080</td>
+                    <td>US</td>
+                    <td>United States</td>
+                    <td>elite proxy</td>
+                    <td>yes</td>
+                    <td>yes</td>
+                    <td>1 minute ago</td>
+                </tr>
+            </table>
+            '''
+            mock_session.return_value.get.return_value = mock_response
+
+            # Test thread join timeout
+            mock_time.side_effect = [0] + [61] * 10  # First call returns 0, rest return 61
+            mock_thread.return_value.daemon = True
+            proxies = fetch_proxies(c=1, t=1, max_proxies=1)
+            assert isinstance(proxies, list)
+
+            # Test thread exception handling
+            mock_time.side_effect = [0] + [30] * 10
+            mock_thread.return_value.join.side_effect = Exception("Thread error")
+            proxies = fetch_proxies(c=1, t=1, max_proxies=1)
+            assert isinstance(proxies, list)
+
+    def test_main_edge_cases(self):
+        """Test main function edge cases"""
+        # Test with invalid proxy string format
+        with pytest.raises(IndexError):
+            main(proxies=['invalid_format'])
+
+        # Test with mixed proxy formats
+        proxies = ['127.0.0.1:8080', 'invalid:format']
+        with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
+            mock_fetch.return_value = []
+            result = main(proxies=proxies)
+            assert isinstance(result, list)
+            assert len(result) == 0
+
+        # Test with non-list proxies
+        with pytest.raises(TypeError):
+            main(proxies='127.0.0.1:8080')
 
     def test_proxy_validation_timeout(self):
         """Test proxy validation with timeout"""

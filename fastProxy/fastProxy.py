@@ -27,10 +27,16 @@ alive_queue = Queue()
 def alter_globals(c=None, t=None, g=None, a=None):
     """Alter global variables based on parameters"""
     global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+
+    # Store current values for debugging
+    old_timeout = REQUEST_TIMEOUT
+
+    # Update values if provided
     if c is not None:
         THREAD_COUNT = c
     if t is not None:
         REQUEST_TIMEOUT = t
+        logger.debug(f"Updated REQUEST_TIMEOUT from {old_timeout} to {t}")
     if g is not None:
         GENERATE_CSV = g
     if a is not None:
