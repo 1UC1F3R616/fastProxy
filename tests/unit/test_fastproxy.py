@@ -141,6 +141,22 @@ class TestFastProxy:
         mock_get.return_value = MagicMock(status_code=404)
         assert thread.check_proxy(proxy_data) is False
 
+        # Test malformed proxy data
+        malformed_proxy = {'ip': '127.0.0.1', 'port': 'abc'}
+        assert thread.check_proxy(malformed_proxy) is False
+
+        # Test connection timeout
+        mock_get.side_effect = requests.exceptions.Timeout("Connection timed out")
+        assert thread.check_proxy(proxy_data) is False
+
+        # Test connection error
+        mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+        assert thread.check_proxy(proxy_data) is False
+
+        # Test invalid URL format
+        mock_get.side_effect = requests.exceptions.InvalidURL("Invalid URL")
+        assert thread.check_proxy(proxy_data) is False
+
     @patch('requests.session')
     def test_fetch_proxies_success(self, mock_session):
         mock_response = MagicMock()
