@@ -2,7 +2,7 @@ import fire
 import requests
 from bs4 import BeautifulSoup as soup
 import threading
-from queue import Queue
+from queue import Queue, Empty
 import csv
 import os
 from .logger import logger
@@ -59,6 +59,7 @@ class alive_ip(threading.Thread):
 
     def run(self):
         while True:
+            proxy_data = None
             try:
                 # Get proxy from queue with timeout
                 proxy_data = self.q.get(timeout=1)
@@ -88,8 +89,8 @@ class alive_ip(threading.Thread):
                                 'country': country,
                                 'anonymity': anonymity
                             })
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"HTTP proxy failed: {proxy} - {str(e)}")
 
                 # Test HTTPS proxy if supported
                 if is_https:
@@ -108,17 +109,16 @@ class alive_ip(threading.Thread):
                                     'country': country,
                                     'anonymity': anonymity
                                 })
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"HTTPS proxy failed: {proxy} - {str(e)}")
 
-            except queue.Empty:
+            except Empty:
                 break
             except Exception as e:
                 logger.error(f"Error validating proxy: {str(e)}")
-                continue
-
             finally:
-                self.q.task_done()
+                if proxy_data is not None:
+                    self.q.task_done()
 
 def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
     """Main function to fetch and validate proxies"""
@@ -181,10 +181,9 @@ def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
         logger.error(f"Error in fetch_proxies: {str(e)}")
         return []
 
-def generate_csv():
+def generate_csv(working_proxies):
     """Generate CSV file with working proxies"""
     try:
-        working_proxies = list(alive_queue.queue)
         if not working_proxies:
             logger.debug("No proxies to write to CSV file")
             return
@@ -194,15 +193,16 @@ def generate_csv():
             writer = csv.writer(f)
             writer.writerow(['IP Address', 'Port', 'Code', 'Country', 'Anonymity', 'Google', 'Https', 'Last Checked'])
             for proxy in working_proxies:
+                proxy_parts = proxy['proxy'].split(':')
                 writer.writerow([
-                    proxy['ip'],
-                    proxy['port'],
-                    proxy.get('code', ''),
-                    proxy.get('country', ''),
-                    proxy.get('anonymity', ''),
-                    proxy.get('google', False),
-                    proxy.get('https', False),
-                    proxy.get('last_checked', '')
+                    proxy_parts[0],  # IP
+                    proxy_parts[1],  # Port
+                    '',  # Code
+                    proxy['country'],
+                    proxy['anonymity'],
+                    False,  # Google
+                    proxy['type'] == 'https',  # Https
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Last Checked
                 ])
             logger.debug(f"Wrote {len(working_proxies)} proxies to CSV file")
     except Exception as e:
