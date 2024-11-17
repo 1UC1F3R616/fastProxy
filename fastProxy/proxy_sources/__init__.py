@@ -30,3 +30,9 @@ class ProxySource(ABC):
         except requests.RequestException as e:
             logger.error(f"Error fetching from {url}: {str(e)}")
             return None
+
+from .manager import ProxySourceManager
+from .free_proxy_list import FreeProxyListSource
+from .geonode import GeoNodeSource
+
+__all__ = ['ProxySource', 'ProxySourceManager', 'FreeProxyListSource', 'GeoNodeSource']
