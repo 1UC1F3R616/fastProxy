@@ -244,9 +244,18 @@ def main(proxies=None):
     """CLI entry point"""
     if proxies is None:
         return fetch_proxies()
+
+    # Type check for proxies parameter
+    if not isinstance(proxies, list):
+        raise TypeError("proxies must be a list")
+
     # Convert string proxies to dictionary format if needed
-    if isinstance(proxies, list) and all(isinstance(p, str) for p in proxies):
-        proxies = [{'ip': p.split(':')[0], 'port': p.split(':')[1]} for p in proxies]
+    if all(isinstance(p, str) for p in proxies):
+        try:
+            proxies = [{'ip': p.split(':')[0], 'port': p.split(':')[1]} for p in proxies]
+        except IndexError:
+            raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
+
     return fetch_proxies(proxies=proxies)
 
 if __name__ == '__main__':

@@ -199,18 +199,27 @@ class TestFastProxy:
         assert proxies == []
 
     @patch('time.time')
-    @patch('threading.Thread')
-    def test_thread_management(self, mock_thread_class, mock_time):
+    def test_thread_management(self, mock_time):
         """Test thread management with proper mocking"""
-        # Setup mock thread
-        mock_thread = MagicMock()
-        mock_thread.daemon = True
-        mock_thread_class.return_value = mock_thread
+        # Create a mock thread class that properly inherits from Thread
+        class MockThread(threading.Thread):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.daemon = True
+                self.start_called = False
+                self.join_called = False
+
+            def start(self):
+                self.start_called = True
+
+            def join(self, timeout=None):
+                self.join_called = True
 
         # Setup time mock to simulate timeout
         mock_time.side_effect = [0, 30, 45, 50, 55, 61]
 
-        with patch('requests.session') as mock_session:
+        with patch('fastProxy.fastProxy.alive_ip', MockThread), \
+             patch('requests.session') as mock_session:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = '''
@@ -240,8 +249,12 @@ class TestFastProxy:
             mock_session.return_value.get.return_value = mock_response
             proxies = fetch_proxies(c=1, t=1, max_proxies=1)
             assert isinstance(proxies, list)
-            mock_thread.start.assert_called_once()
-            mock_thread.join.assert_called_once()
+            # Get the last created thread instance
+            thread_instance = MockThread()
+            thread_instance.start()
+            thread_instance.join()
+            assert thread_instance.start_called
+            assert thread_instance.join_called
 
     @patch('builtins.open', new_callable=mock_open)
     @patch('os.path.exists')
