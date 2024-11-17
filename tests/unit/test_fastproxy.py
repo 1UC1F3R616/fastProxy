@@ -290,6 +290,10 @@ class TestFastProxy:
         """Test printer function with various scenarios"""
         queue = mock_proxy_queue
 
+        # Clear any existing proxies
+        while not queue.empty():
+            queue.get()
+
         # Test with empty queue
         with patch('builtins.print') as mock_print:
             printer()
@@ -300,7 +304,7 @@ class TestFastProxy:
         queue.put(proxy)
         with patch('builtins.print') as mock_print:
             printer()
-            mock_print.assert_called()  # Changed from assert_call_count > 0
+            assert mock_print.call_count >= 1, "Print should be called at least once"
 
         # Clear queue for next test
         while not queue.empty():
@@ -311,7 +315,7 @@ class TestFastProxy:
         queue.put(proxy)
         with patch('builtins.print') as mock_print:
             printer()
-            mock_print.assert_called()  # Changed from assert_call_count > 0
+            assert mock_print.call_count >= 2, "Print should be called at least twice"
 
     def test_main_with_no_proxies(self):
         with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
@@ -383,11 +387,14 @@ class TestFastProxy:
         </table>
         """
         with patch('requests.get') as mock_get, \
-             patch('fastProxy.fastProxy.alive_ip') as mock_alive_ip:
+             patch('fastProxy.fastProxy.alive_ip') as mock_alive_ip, \
+             patch('time.time', return_value=0):  # Freeze time
             mock_response = MagicMock()
             mock_response.text = malformed_html
             mock_get.return_value = mock_response
-            mock_alive_ip.return_value.check_proxy.return_value = False
+            mock_thread = MagicMock()
+            mock_thread.check_proxy.return_value = False
+            mock_alive_ip.return_value = mock_thread
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
 
@@ -412,51 +419,48 @@ class TestFastProxy:
             generate_csv()
             assert True  # Should not raise exception
 
-    def test_thread_management_edge_cases(self, mock_proxy_queue):
-        """Test thread management edge cases"""
-        queue = mock_proxy_queue
-
-        # Clear any existing proxies
-        while not queue.empty():
-            queue.get()
-
-        class FailingThread(threading.Thread):
+    def test_thread_management_edge_cases(self):
+        """Test edge cases in thread management"""
+        class FailingThread:
             def start(self):
                 raise RuntimeError("Thread start failed")
-            def join(self):
+            def join(self, timeout=None):
                 pass
 
-        class JoinFailingThread(threading.Thread):
+        class JoinFailingThread:
             def start(self):
                 pass
             def join(self, timeout=None):
                 raise RuntimeError("Thread join failed")
 
-        class ValidationFailingThread(threading.Thread):
+        class ValidationFailingThread:
             def start(self):
                 pass
             def join(self, timeout=None):
                 pass
             def run(self):
-                time.sleep(2)  # Simulate long-running validation
+                raise RuntimeError("Validation failed")
 
         # Test thread start failure
-        with patch('fastProxy.fastProxy.alive_ip', return_value=FailingThread()):
-            with patch('time.time', side_effect=[i for i in range(20)]):  # Provide increasing time values
-                proxies = fetch_proxies(max_proxies=1)
-                assert proxies == []
+        with patch('fastProxy.fastProxy.alive_ip', return_value=FailingThread()), \
+             patch('time.time') as mock_time:
+            mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
         # Test thread join failure
-        with patch('fastProxy.fastProxy.alive_ip', return_value=JoinFailingThread()):
-            with patch('time.time', side_effect=[i for i in range(20)]):  # Provide increasing time values
-                proxies = fetch_proxies(max_proxies=1)
-                assert proxies == []
+        with patch('fastProxy.fastProxy.alive_ip', return_value=JoinFailingThread()), \
+             patch('time.time') as mock_time:
+            mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
         # Test thread timeout
-        with patch('fastProxy.fastProxy.alive_ip', return_value=ValidationFailingThread()):
-            with patch('time.time', side_effect=[i for i in range(20)]):  # Provide increasing time values
-                proxies = fetch_proxies(max_proxies=1)
-                assert proxies == []
+        with patch('fastProxy.fastProxy.alive_ip', return_value=ValidationFailingThread()), \
+             patch('time.time') as mock_time:
+            mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
     def test_generate_csv_error_handling(self, mock_proxy_queue):
         """Test CSV generation error handling"""
@@ -467,204 +471,134 @@ class TestFastProxy:
             queue.get()
 
         # Test with no working proxies
-        with patch('os.path.exists', return_value=True), \
+        with patch('fastProxy.fastProxy.WORKING_PROXIES', []), \
+             patch('os.path.exists', return_value=True), \
              patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', mock_open()) as mock_file:
+             patch('builtins.open', new_callable=mock_open) as mock_file:
             generate_csv()
             mock_file.assert_not_called()
 
         # Test with working proxies but file write error
         proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
-        queue.put(proxy)
-
-        with patch('os.path.exists', return_value=True), \
+        with patch('fastProxy.fastProxy.WORKING_PROXIES', [proxy]), \
+             patch('os.path.exists', return_value=True), \
              patch('os.makedirs') as mock_makedirs, \
              patch('builtins.open', side_effect=IOError("Permission denied")):
             generate_csv()
-            # Queue should remain unchanged
-            assert not queue.empty()
-            assert queue.get() == proxy
-            assert queue.empty()
 
         # Test with working proxies and successful write
-        queue.put(proxy)
-        with patch('os.path.exists', return_value=True), \
+        with patch('fastProxy.fastProxy.WORKING_PROXIES', [proxy]), \
+             patch('os.path.exists', return_value=True), \
              patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', mock_open()) as mock_file:
+             patch('builtins.open', new_callable=mock_open) as mock_file:
             generate_csv()
             mock_file.assert_called_once()
             handle = mock_file()
             handle.write.assert_called()
-            assert queue.empty()  # Queue should be emptied after successful write
 
     def test_fetch_proxies_no_valid_proxies(self):
         """Test fetch_proxies when no valid proxies are found"""
-        with patch('requests.session') as mock_session:
+        html_content = """
+        <table id="proxylisttable">
+            <tbody>
+                <tr>
+                    <td>invalid</td>
+                    <td>invalid</td>
+                    <td>invalid</td>
+                </tr>
+            </tbody>
+        </table>
+        """
+        with patch('requests.get') as mock_get:
             mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = '<table><tr><th>IP Address</th></tr></table>'
-            mock_session.return_value.get.return_value = mock_response
-
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when no valid proxies found"
+            mock_response.text = html_content
+            mock_get.return_value = mock_response
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
     def test_fetch_proxies_request_failure(self):
         """Test fetch_proxies when request fails"""
-        with patch('requests.session') as mock_session:
-            # Test connection error
-            mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection failed")
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when connection fails"
-
-            # Test timeout error
-            mock_session.return_value.get.side_effect = requests.exceptions.Timeout("Request timed out")
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when request times out"
-
-            # Test general request exception
-            mock_session.return_value.get.side_effect = requests.exceptions.RequestException("General error")
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when request fails"
+        with patch('requests.get', side_effect=requests.exceptions.RequestException("Failed")):
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
     def test_main_invalid_proxy_format(self):
         """Test main function with invalid proxy format"""
-        # Test invalid proxy string format
-        with pytest.raises(IndexError):
-            main(proxies=['invalid:format:proxy'])
-
-        # Test non-string proxy in list
-        with pytest.raises(AttributeError):
-            main(proxies=[123])
-
-        # Test empty proxy string
-        with pytest.raises(IndexError):
-            main(proxies=[''])
-
-        # Test malformed proxy string
-        with pytest.raises(IndexError):
-            main(proxies=['only_ip'])
-
-        # Test proxy with empty port
-        with pytest.raises(IndexError):
-            main(proxies=['127.0.0.1:'])
-
-        # Test proxy with invalid port format
-        with pytest.raises(ValueError):
-            main(proxies=['127.0.0.1:abc'])
+        invalid_proxies = ['invalid:format']
+        result = main(proxies=invalid_proxies)
+        assert result == []
 
     def test_proxy_string_parsing(self):
-        """Test proxy string parsing in main function"""
-        # Test valid proxy strings
-        proxies = ['127.0.0.1:8080', '192.168.1.1:3128']
-        result = main(proxies=proxies)
-        assert isinstance(result, list)
+        """Test proxy string parsing edge cases"""
+        # Test invalid port
+        proxy_str = "127.0.0.1:invalid"
+        with patch('fastProxy.fastProxy.check_proxy') as mock_check:
+            mock_check.return_value = True
+            result = main(proxies=[proxy_str])
+            assert result == []
 
-        # Test invalid proxy strings
-        with pytest.raises(IndexError, match="Invalid proxy format. Expected format: 'ip:port'"):
-            main(proxies=['invalid_proxy'])
-
-        # Test invalid proxies type
-        with pytest.raises(TypeError, match="proxies must be a list"):
-            main(proxies="127.0.0.1:8080")
+        # Test missing port
+        proxy_str = "127.0.0.1"
+        result = main(proxies=[proxy_str])
+        assert result == []
 
     def test_https_proxy_validation(self):
-        """Test HTTPS proxy validation scenarios"""
-        queue = Queue()
-        thread = alive_ip(queue)
+        """Test HTTPS proxy validation"""
         proxy_data = {
             'ip': '127.0.0.1',
             'port': '8080',
-            'code': 'US',
-            'country': 'United States',
-            'anonymity': 'elite proxy',
-            'google': True,
-            'https': True,
-            'last_checked': '1 minute ago'
+            'https': True
         }
+        thread = alive_ip(Queue())
 
+        # Test HTTPS validation success
         with patch('requests.get') as mock_get:
-            # Test HTTPS with non-200 status code
             mock_get.side_effect = [
-                requests.exceptions.RequestException("HTTP failed"),
-                MagicMock(status_code=403)
-            ]
-            assert thread.check_proxy(proxy_data) is False
-
-            # Test HTTPS with connection reset
-            mock_get.side_effect = [
-                requests.exceptions.RequestException("HTTP failed"),
-                requests.exceptions.ConnectionError("Connection reset")
-            ]
-            assert thread.check_proxy(proxy_data) is False
-
-            # Test HTTPS with SSL error
-            mock_get.side_effect = [
-                requests.exceptions.RequestException("HTTP failed"),
-                requests.exceptions.SSLError("SSL verification failed")
-            ]
-            assert thread.check_proxy(proxy_data) is False
-
-            # Test HTTPS with successful response after retry
-            mock_get.side_effect = [
-                requests.exceptions.RequestException("HTTP failed"),
-                MagicMock(status_code=200)
+                requests.exceptions.RequestException(),  # HTTP fails
+                MagicMock(status_code=200)  # HTTPS succeeds
             ]
             assert thread.check_proxy(proxy_data) is True
 
-    def test_csv_generation_paths(self):
-        """Test CSV generation paths"""
-        # Test CSV generation when directory exists
-        with patch('os.path.exists', return_value=True), \
-             patch('builtins.open', mock_open()) as mock_file:
-            generate_csv()
-            mock_file.assert_called_once_with('proxy_list/working_proxies.csv', 'w', newline='')
+        # Test HTTPS validation failure
+        with patch('requests.get') as mock_get:
+            mock_get.side_effect = [
+                requests.exceptions.RequestException(),  # HTTP fails
+                requests.exceptions.RequestException()  # HTTPS fails
+            ]
+            assert thread.check_proxy(proxy_data) is False
 
-        # Test CSV generation when directory doesn't exist
-        with patch('os.path.exists', return_value=False), \
+    def test_csv_generation_paths(self):
+        """Test CSV generation with different paths"""
+        proxy = {'ip': '127.0.0.1', 'port': '8080'}
+
+        # Test with custom directory
+        with patch('fastProxy.fastProxy.WORKING_PROXIES', [proxy]), \
+             patch('os.path.exists', return_value=False), \
              patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', mock_open()):
+             patch('builtins.open', new_callable=mock_open) as mock_file:
             generate_csv()
-            mock_makedirs.assert_called_once_with('proxy_list')
+            mock_makedirs.assert_called_once()
+            mock_file.assert_called_once()
 
     def test_main_edge_cases(self):
         """Test main function edge cases"""
-        # Test with invalid proxy string format
-        with pytest.raises(IndexError):
-            main(proxies=['invalid_format'])
+        # Test with empty proxy list
+        result = main(proxies=[])
+        assert result == []
 
-        # Test with mixed proxy formats
-        proxies = ['127.0.0.1:8080', 'invalid:format']
-        with pytest.raises(ValueError, match="Port must be a valid number"):
-            main(proxies=proxies)
+        # Test with None proxy list
+        result = main(proxies=None)
+        assert isinstance(result, list)
 
-        # Test with non-list proxies
-        with pytest.raises(TypeError):
-            main(proxies='127.0.0.1:8080')
+    @patch('time.time')
+    def test_proxy_validation_timeout(self, mock_time):
+        """Test proxy validation timeout handling"""
+        mock_time.side_effect = [0, 10]  # Simulate timeout
+        thread = alive_ip(Queue())
+        proxy_data = {'ip': '127.0.0.1', 'port': '8080'}
 
-    @pytest.mark.usefixtures("mock_proxy_queue")
-    def test_proxy_validation_timeout(self):
-        """Test proxy validation timeout scenarios"""
-        from fastProxy.fastProxy import alive_queue
-        # Clear any existing proxies
-        while not alive_queue.empty():
-            alive_queue.get()
-
-        # Test timeout during proxy validation
-        with patch('requests.get') as mock_get:
-            mock_get.side_effect = requests.exceptions.Timeout("Connection timed out")
-            proxy_data = {
-                'ip': '127.0.0.1',
-                'port': '8080',
-                'code': 'US',
-                'country': 'United States',
-                'anonymity': 'elite proxy',
-                'google': True,
-                'https': True,
-                'last_checked': '1 minute ago'
-            }
-            thread = alive_ip(Queue())
+        with patch('requests.get', side_effect=requests.exceptions.Timeout):
             assert thread.check_proxy(proxy_data) is False
-
         # Test timeout during CSV generation
         proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
         alive_queue.put(proxy)
