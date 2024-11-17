@@ -1,5 +1,9 @@
 bs4
 requests
-firepycountry
+fire
 pytest>=7.4.0
 pytest-cov>=4.1.0
+pycountry
+
+# tests
+requests_mock

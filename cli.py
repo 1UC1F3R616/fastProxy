@@ -27,9 +27,9 @@ def main(c=None, t=None, g=None, a=None, max_proxies=5):
         a (bool, optional): All proxies. Defaults to None.
         max_proxies (int, optional): Maximum number of proxies to fetch. Defaults to 5.
     """
-    # Set global timeout for CLI operation
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(45)  # 45 second timeout for entire CLI operation
+    # Set global timeout for CLI operation # Linux
+    # signal.signal(signal.SIGALRM, timeout_handler)
+    # signal.alarm(45)  # 45 second timeout for entire CLI operation
 
     try:
         # Configure settings with very conservative defaults here
@@ -52,7 +52,8 @@ def main(c=None, t=None, g=None, a=None, max_proxies=5):
     except Exception as e:
         print(f"\nError: {str(e)}")
     finally:
-        signal.alarm(0)  # Disable alarm
+        # signal.alarm(0)  # Disable alarm # Linux only
+        pass
 
 if __name__ == '__main__':
     fire.Fire(main)

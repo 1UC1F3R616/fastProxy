@@ -25,13 +25,13 @@
 ## Installation
 ### pip install
 ```bash
-pip install fastProxy==0.1.3
+pip install fastProxy==1.0.0
 ```
 ### git clone
 ```text
 git clone https://github.com/1UC1F3R616/fastProxy.git
 cd fastProxy/
-pip install -r requirements.txt
+pip install -r requirements.txt -U
 ```
 
 ## Run using CLI
@@ -39,7 +39,11 @@ pip install -r requirements.txt
 - Threads: 100
 - Request Timeout: 4sec
 ```bash
-python fastProxy.py 
+# Basic usage
+python cli.py
+
+# With options
+python cli.py --c=10 --t=5 --g --a
 ```
 #### Aletered Parameters
 
@@ -49,10 +53,6 @@ python fastProxy.py
 | t      | Request Timeout in sec    |   Give Faster Proxy when set to lower Values | 4 | `--t=20`  |
 | g | Generate CSV      |  Generate CSV of Working proxy only with user flags| False | `--g` |
 | a | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False | `--a` |
-
-```bash
-python fastProxy.py --c=256 --t=2 --g --a 
-```
 
 ## Run by import
 - Set Flags or Default Values are Taken
@@ -65,16 +65,26 @@ python fastProxy.py --c=256 --t=2 --g --a
 | a | All Scraped Proxy     |  Generate CSV of All Scrapped Proxies with more Detail  | False | `a=True`|
 
 ```py
-import fastProxy
+from fastProxy import fetch_proxies
 
-myProxyList = fastProxy.fetch_proxies(c=128, t=2, g=True, a=True)
+# Basic usage
+proxies = fetch_proxies()
 
-print(myProxyList)
+print(proxies)
+
+# With options
+proxies = fetch_proxies(c=10, t=5, g=True, a=True)
 ```
 
 #### Sample [CSV File](https://github.com/1UC1F3R616/fastProxy/blob/master/Sample/all_proxies.csv)
 
+#### TODOs
+- [ ] Tag slow tests
+- [ ] Fix failing tests
+- [ ] Add support for `https://proxyscrape.com/free-proxy-list` using ` https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=json`
+- [ ] Remove redundant code and files
+- [ ] Refactor linux only code with proper handling
+
 </br>
 
 [![LinkedIn](https://img.shields.io/static/v1.svg?label=Connect&message=@Kush&color=grey&logo=linkedin&labelColor=blue&style=social)](https://www.linkedin.com/in/kush-choudhary-567b38169?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BDYkgbUGhTniMSRqOUkdN3A%3D%3D)
-[![LinkedIn](https://img.shields.io/static/v1.svg?label=Connect&message=@Dhruv&color=grey&logo=linkedin&labelColor=blue&style=social)](https://www.linkedin.com/in/dhruv-agarwal-043ab3179/?lipi=urn%3Ali%3Apage%3Ad_flagship3_profile_view_base_contact_details%3BDYkgbUGhTniMSRqOUkdN3A%3D%3D)
