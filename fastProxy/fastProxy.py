@@ -34,16 +34,16 @@ def alter_globals(c=None, t=None, g=None, a=None):
 
     # Update values if provided
     if c is not None:
-        THREAD_COUNT = c
+        globals()['THREAD_COUNT'] = c
         logger.debug(f"Updated THREAD_COUNT from {old_thread_count} to {c}")
     if t is not None:
-        REQUEST_TIMEOUT = t
+        globals()['REQUEST_TIMEOUT'] = t
         logger.debug(f"Updated REQUEST_TIMEOUT from {old_timeout} to {t}")
     if g is not None:
-        GENERATE_CSV = g
+        globals()['GENERATE_CSV'] = g
         logger.debug(f"Updated GENERATE_CSV to {g}")
     if a is not None:
-        ALL_PROXIES = a
+        globals()['ALL_PROXIES'] = a
         logger.debug(f"Updated ALL_PROXIES to {a}")
 
 class alive_ip(threading.Thread):
@@ -245,22 +245,27 @@ def printer():
         logger.info(proxy_str)
 
 def main(proxies=None):
-    """CLI entry point"""
-    if proxies is None:
-        return fetch_proxies()
+    """Main function to handle proxy operations"""
+    if proxies is not None:
+        if not isinstance(proxies, list):
+            raise TypeError("proxies must be a list")
 
-    # Type check for proxies parameter
-    if not isinstance(proxies, list):
-        raise TypeError("proxies must be a list")
+        valid_proxies = []
+        for proxy in proxies:
+            if not isinstance(proxy, str):
+                raise AttributeError("Each proxy must be a string")
+            if not proxy or ':' not in proxy:
+                raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
+            try:
+                ip, port = proxy.split(':')
+                if not ip or not port:
+                    raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
+                valid_proxies.append({'ip': ip, 'port': port})
+            except ValueError:
+                raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
 
-    # Convert string proxies to dictionary format if needed
-    if all(isinstance(p, str) for p in proxies):
-        try:
-            proxies = [{'ip': p.split(':')[0], 'port': p.split(':')[1]} for p in proxies]
-        except IndexError:
-            raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
-
-    return fetch_proxies(proxies=proxies)
+        return fetch_proxies(proxies=valid_proxies)
+    return fetch_proxies()
 
 if __name__ == '__main__':
     fire.Fire(main)
