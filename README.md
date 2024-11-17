@@ -22,6 +22,9 @@
 - [x] Proxy Export
 - [ ] Country Filteration
 
+### Detailed Documentation
+- [Documentation](https://github.com/1UC1F3R616/fastProxy/blob/master/DOCUMENTATION.md)
+
 ## Installation
 ### pip install
 ```bash
