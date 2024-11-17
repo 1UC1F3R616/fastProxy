@@ -35,13 +35,13 @@ class FreeProxyListSource(ProxySource):
             rows = proxy_table.find_all('tr')[1:]  # Skip header row
             for row in rows:
                 cols = row.find_all('td')
-                if len(cols) >= 7:
+                if len(cols) >= 8:  # Changed from 7 to 8 since we need all 8 columns
                     proxy = {
                         'ip': cols[0].text.strip(),
                         'port': cols[1].text.strip(),
                         'code': cols[2].text.strip(),
                         'country': cols[3].text.strip(),
-                        'anonymity': cols[4].text.strip().lower(),
+                        'anonymity': cols[4].text.strip(),
                         'google': cols[5].text.strip().lower(),
                         'https': cols[6].text.strip().lower(),
                         'last_checked': cols[7].text.strip()
