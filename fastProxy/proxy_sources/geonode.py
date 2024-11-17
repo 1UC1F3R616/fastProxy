@@ -26,20 +26,30 @@ class GeoNodeSource(ProxySource):
 
         try:
             data = response.json()
+            logger.debug(f"Received response from geonode.com: {data.keys()}")
 
             if 'data' not in data:
                 logger.error("Invalid response format from geonode.com API")
                 return proxies
 
             for proxy in data['data']:
+                protocols = proxy.get('protocols', [])
+                if isinstance(protocols, str):
+                    protocols = protocols.lower().split(',')
+                elif isinstance(protocols, list):
+                    protocols = [p.lower() for p in protocols]
+                else:
+                    protocols = []
+
                 proxy_entry = {
                     'ip': proxy.get('ip', ''),
                     'port': str(proxy.get('port', '')),
                     'country': proxy.get('country', ''),
                     'anonymity': proxy.get('anonymity', ''),
-                    'https': 'yes' if 'https' in proxy.get('protocols', '').lower() else 'no'
+                    'https': 'yes' if 'https' in protocols else 'no'
                 }
-                proxies.append(proxy_entry)
+                if proxy_entry['ip'] and proxy_entry['port']:
+                    proxies.append(proxy_entry)
 
             logger.info(f"Found {len(proxies)} proxies from geonode.com")
 
@@ -47,5 +57,6 @@ class GeoNodeSource(ProxySource):
             logger.error(f"Error parsing geonode.com API response: {str(e)}")
         except Exception as e:
             logger.error(f"Error processing geonode.com API response: {str(e)}")
+            logger.debug(f"Error details: {str(e)}", exc_info=True)
 
         return proxies

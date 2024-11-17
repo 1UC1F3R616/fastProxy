@@ -18,14 +18,21 @@ class FreeProxyListSource(ProxySource):
 
         try:
             soup = BeautifulSoup(response.text, 'html.parser')
-            proxy_table = soup.find('table', {'id': 'proxylisttable'})
+            # Try different table selectors
+            proxy_table = (
+                soup.find('table', {'id': 'proxylisttable'}) or
+                soup.find('table', {'class': 'table table-striped table-bordered'}) or
+                soup.find('table')  # Fallback to first table
+            )
 
             if not proxy_table:
                 logger.error("Could not find proxy table on free-proxy-list.net")
                 return proxies
 
-            rows = proxy_table.find_all('tr')[1:]  # Skip header row
+            # Debug table structure
+            logger.debug(f"Table found with {len(proxy_table.find_all('tr'))} rows")
 
+            rows = proxy_table.find_all('tr')[1:]  # Skip header row
             for row in rows:
                 cols = row.find_all('td')
                 if len(cols) >= 7:
@@ -34,9 +41,10 @@ class FreeProxyListSource(ProxySource):
                         'port': cols[1].text.strip(),
                         'country': cols[3].text.strip(),
                         'anonymity': cols[4].text.strip(),
-                        'https': 'yes' if cols[6].text.strip() == 'yes' else 'no'
+                        'https': 'yes' if cols[6].text.strip().lower() == 'yes' else 'no'
                     }
-                    proxies.append(proxy)
+                    if proxy['ip'] and proxy['port'].isdigit():
+                        proxies.append(proxy)
 
             logger.info(f"Found {len(proxies)} proxies from free-proxy-list.net")
 
