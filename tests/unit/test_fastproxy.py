@@ -4,16 +4,20 @@ from unittest.mock import patch, MagicMock, mock_open
 from queue import Queue
 import threading
 import time
+import os
 from fastProxy.fastProxy import (
-    alter_globals, alive_ip, fetch_proxies,
-    generate_csv, printer, main,
-    THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+    alter_globals, alive_ip, fetch_proxies, generate_csv,
+    printer, main, THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV,
+    ALL_PROXIES, alive_queue
 )
+from fastProxy.logger import logger
 
 class TestFastProxy:
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self):
         """Reset globals before and after each test"""
+        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+
         # Store original values
         self.original_thread_count = THREAD_COUNT
         self.original_timeout = REQUEST_TIMEOUT
@@ -21,7 +25,6 @@ class TestFastProxy:
         self.original_all = ALL_PROXIES
 
         # Reset to default values before each test
-        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
         THREAD_COUNT = 100
         REQUEST_TIMEOUT = 4
         GENERATE_CSV = False
@@ -64,6 +67,9 @@ class TestFastProxy:
         return queue
 
     def test_alter_globals(self):
+        """Test altering global variables"""
+        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+
         # First test: verify initial state
         assert THREAD_COUNT == 100
         assert REQUEST_TIMEOUT == 4
@@ -72,14 +78,17 @@ class TestFastProxy:
 
         # Second test: change all parameters
         alter_globals(c=200, t=5, g=True, a=True)
-        assert THREAD_COUNT == 200
-        assert REQUEST_TIMEOUT == 5
-        assert GENERATE_CSV is True
-        assert ALL_PROXIES is True
+        # Add a small delay to ensure globals are updated
+        time.sleep(0.1)
+        assert THREAD_COUNT == 200, f"Expected THREAD_COUNT to be 200, got {THREAD_COUNT}"
+        assert REQUEST_TIMEOUT == 5, f"Expected REQUEST_TIMEOUT to be 5, got {REQUEST_TIMEOUT}"
+        assert GENERATE_CSV is True, f"Expected GENERATE_CSV to be True, got {GENERATE_CSV}"
+        assert ALL_PROXIES is True, f"Expected ALL_PROXIES to be True, got {ALL_PROXIES}"
 
         # Third test: change only some parameters
         alter_globals(c=50)
-        assert THREAD_COUNT == 50
+        time.sleep(0.1)
+        assert THREAD_COUNT == 50, f"Expected THREAD_COUNT to be 50, got {THREAD_COUNT}"
         assert REQUEST_TIMEOUT == 5  # Should remain unchanged
         assert GENERATE_CSV is True  # Should remain unchanged
         assert ALL_PROXIES is True  # Should remain unchanged
@@ -191,10 +200,15 @@ class TestFastProxy:
 
     @patch('time.time')
     @patch('threading.Thread')
-    def test_thread_management(self, mock_thread, mock_time):
-        # Test thread timeout scenario
-        mock_time.side_effect = [0, 30, 45, 50, 55, 61]  # Multiple time values for different calls
-        mock_thread.return_value.daemon = True
+    def test_thread_management(self, mock_thread_class, mock_time):
+        """Test thread management with proper mocking"""
+        # Setup mock thread
+        mock_thread = MagicMock()
+        mock_thread.daemon = True
+        mock_thread_class.return_value = mock_thread
+
+        # Setup time mock to simulate timeout
+        mock_time.side_effect = [0, 30, 45, 50, 55, 61]
 
         with patch('requests.session') as mock_session:
             mock_response = MagicMock()
@@ -226,6 +240,8 @@ class TestFastProxy:
             mock_session.return_value.get.return_value = mock_response
             proxies = fetch_proxies(c=1, t=1, max_proxies=1)
             assert isinstance(proxies, list)
+            mock_thread.start.assert_called_once()
+            mock_thread.join.assert_called_once()
 
     @patch('builtins.open', new_callable=mock_open)
     @patch('os.path.exists')
@@ -373,6 +389,8 @@ class TestFastProxy:
             mock_thread.return_value.daemon = True
             proxies = fetch_proxies(c=1, t=1, max_proxies=1)
             assert isinstance(proxies, list)
+            mock_thread.return_value.start.assert_called_once()
+            mock_thread.return_value.join.assert_called_once()
 
             # Test thread exception handling
             mock_time.side_effect = [0] + [30] * 10
