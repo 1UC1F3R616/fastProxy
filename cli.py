@@ -32,7 +32,7 @@ def main(c=None, t=None, g=None, a=None, max_proxies=5):
     signal.alarm(45)  # 45 second timeout for entire CLI operation
 
     try:
-        # Configure settings with very conservative defaults
+        # Configure settings with very conservative defaults here
         alter_globals(
             c=c or 2,     # Default to 2 threads
             t=t or 15,    # Default to 15 second timeout
