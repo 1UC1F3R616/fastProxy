@@ -92,11 +92,9 @@ class TestFastProxy:
     @pytest.fixture
     def mock_proxy_queue(self):
         """Fixture providing an empty queue for proxy testing"""
-        queue = Queue()
-        yield queue
-        # Clear queue after each test
-        while not queue.empty():
-            queue.get()
+        with patch('fastProxy.fastProxy.alive_queue') as mock_queue:
+            mock_queue.queue = []
+            yield mock_queue
 
     def test_alter_globals(self):
         """Test altering global variables"""
@@ -140,13 +138,14 @@ class TestFastProxy:
         # Test successful HTTP proxy
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.text = '{"origin": "127.0.0.1"}'  # Mock httpbin.org/ip response
         mock_get.return_value = mock_response
         assert thread.check_proxy(proxy_data) is True
 
         # Test failed HTTP but successful HTTPS proxy
         mock_get.side_effect = [
             requests.exceptions.RequestException("HTTP failed"),
-            MagicMock(status_code=200)
+            MagicMock(status_code=200, text='{"origin": "127.0.0.1"}')  # Mock httpbin.org/ip response
         ]
         proxy_data['https'] = True
         assert thread.check_proxy(proxy_data) is True
@@ -310,9 +309,14 @@ class TestFastProxy:
     def test_generate_csv(self, mock_makedirs, mock_exists, mock_file, mock_proxy_queue):
         # Test directory creation
         mock_exists.return_value = False
-        generate_csv()
-        mock_makedirs.assert_called_once()
-        mock_file.assert_called_once()
+        # Mock the queue with a proxy
+        mock_proxy_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
+        mock_proxy_queue.empty.return_value = False
+
+        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue):
+            generate_csv()
+            mock_makedirs.assert_called_once()
+            mock_file.assert_called_once_with('proxy_list/working_proxies.csv', 'w', newline='')
 
         # Test existing directory
         mock_exists.return_value = True
@@ -511,7 +515,8 @@ class TestFastProxy:
         with patch('builtins.open', mock_open()) as mock_file_open, \
              patch('os.path.exists', return_value=True), \
              patch('os.makedirs') as mock_makedirs, \
-             patch('fastProxy.fastProxy.alive_queue') as mock_queue:
+             patch('fastProxy.fastProxy.alive_queue') as mock_queue, \
+             self.assertLogs('fastProxy', level='ERROR') as log:
 
             # Configure mock queue to be empty
             mock_queue.queue = []
@@ -527,9 +532,8 @@ class TestFastProxy:
             mock_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
             mock_file_open.side_effect = IOError("Mock open error")
 
-            with self.assertLogs(level='ERROR') as log:
-                generate_csv()
-                self.assertTrue(any('Error generating CSV' in record.message for record in log.records))
+            generate_csv()
+            self.assertTrue(any("Error generating CSV" in record.message for record in log.records))
 
     def test_fetch_proxies_no_valid_proxies(self):
         """Test fetch_proxies when no valid proxies are found"""
@@ -640,7 +644,7 @@ class TestFastProxy:
         with patch('requests.get') as mock_get:
             mock_get.side_effect = [
                 requests.exceptions.RequestException(),  # HTTP fails
-                MagicMock(status_code=200)  # HTTPS succeeds
+                MagicMock(status_code=200, text='{"origin": "127.0.0.1"}')  # HTTPS succeeds
             ]
             assert thread.check_proxy(proxy_data) is True
 
