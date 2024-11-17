@@ -307,49 +307,51 @@ class TestFastProxy(unittest.TestCase):
     @patch('builtins.open', new_callable=mock_open)
     @patch('os.path.exists')
     @patch('os.makedirs')
-    def test_generate_csv(self, mock_makedirs, mock_exists, mock_file, mock_proxy_queue):
-        # Test directory creation
+    @patch('fastProxy.fastProxy.alive_queue')
+    def test_generate_csv(self, mock_queue, mock_makedirs, mock_exists, mock_file):
+        # Test directory creation when directory doesn't exist
         mock_exists.return_value = False
-        # Mock the queue with a proxy
-        mock_proxy_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
-        mock_proxy_queue.empty.return_value = False
+        mock_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
+        mock_queue.empty.return_value = False
 
-        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue):
-            generate_csv()
-            mock_makedirs.assert_called_once()
-            mock_file.assert_called_once_with('proxy_list/working_proxies.csv', 'w', newline='')
+        generate_csv()
+        mock_makedirs.assert_called_once_with('proxy_list')
+        mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
 
-            # Test existing directory
-            mock_exists.return_value = True
-            generate_csv()
-            assert mock_makedirs.call_count == 1  # Should not be called again
+        # Reset mocks for next test
+        mock_makedirs.reset_mock()
+        mock_file.reset_mock()
 
-    def test_printer(self, mock_proxy_queue):
+        # Test when directory already exists
+        mock_exists.return_value = True
+        generate_csv()
+        mock_makedirs.assert_not_called()
+        mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
+
+    @patch('fastProxy.fastProxy.alive_queue')
+    def test_printer(self, mock_queue):
         """Test printer function with various scenarios"""
         # Mock the queue with proper attributes
-        mock_proxy_queue.queue = []
-        mock_proxy_queue.empty.return_value = True
+        mock_queue.queue = []
+        mock_queue.empty.return_value = True
 
         # Test with empty queue
-        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue), \
-             patch('builtins.print') as mock_print:
+        with patch('builtins.print') as mock_print:
             printer()
             mock_print.assert_not_called()
 
         # Test with single proxy
         proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
-        mock_proxy_queue.queue = [proxy]
-        mock_proxy_queue.empty.return_value = False
+        mock_queue.queue = [proxy]
+        mock_queue.empty.return_value = False
 
-        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue), \
-             patch('builtins.print') as mock_print:
+        with patch('builtins.print') as mock_print:
             printer()
             assert mock_print.call_count >= 1, "Print should be called at least once"
 
         # Test with multiple proxies
-        mock_proxy_queue.queue = [proxy, proxy]
-        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue), \
-             patch('builtins.print') as mock_print:
+        mock_queue.queue = [proxy, proxy]
+        with patch('builtins.print') as mock_print:
             printer()
             assert mock_print.call_count >= 2, "Print should be called at least twice"
 
