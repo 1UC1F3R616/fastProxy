@@ -16,7 +16,7 @@ class ProxySourceManager:
         """Fetch proxies from all sources
 
         Args:
-            max_proxies: Maximum number of proxies to fetch per source
+            max_proxies: Maximum number of total proxies to return
 
         Returns:
             List of proxy dictionaries
@@ -26,12 +26,14 @@ class ProxySourceManager:
         for source in self.sources:
             try:
                 proxies = source.fetch()
-                # Limit proxies per source if max_proxies specified
-                if max_proxies > 0:
-                    proxies = proxies[:max_proxies]
                 all_proxies.extend(proxies)
                 logger.debug(f"Fetched {len(proxies)} proxies from {source.__class__.__name__}")
             except Exception as e:
                 logger.error(f"Error fetching from {source.__class__.__name__}: {str(e)}")
+
+        # Apply max_proxies limit to total proxies
+        if max_proxies > 0 and len(all_proxies) > max_proxies:
+            all_proxies = all_proxies[:max_proxies]
+            logger.debug(f"Limited total proxies to {max_proxies}")
 
         return all_proxies

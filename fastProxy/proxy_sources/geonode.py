@@ -44,10 +44,13 @@ class GeoNodeSource(ProxySource):
                             logger.warning(f"Unexpected protocols format: {protocols}")
                             protocols = []
 
-                        anonymity = proxy.get('anonymityLevel', 'unknown').lower()
-                        anonymity = anonymity.replace('_', ' ')
-                        if not anonymity.endswith(' proxy'):
-                            anonymity += ' proxy'
+                        anonymity = proxy.get('anonymityLevel', 'unknown')
+                        if anonymity:
+                            anonymity = anonymity.lower().replace('_', ' ')
+                            if not anonymity.endswith(' proxy'):
+                                anonymity += ' proxy'
+                        else:
+                            anonymity = 'unknown proxy'
 
                         proxy_entry = {
                             'ip': proxy.get('ip', ''),
