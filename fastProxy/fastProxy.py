@@ -61,17 +61,19 @@ class alive_ip(threading.Thread):
         """Check if a proxy is working"""
         try:
             proxy = proxy_data.get('proxy', f"{proxy_data['ip']}:{proxy_data['port']}")
-            is_https = proxy_data.get('is_https', proxy_data.get('https') == 'yes')
+            is_https = proxy_data.get('is_https', proxy_data.get('https', False))
             country = proxy_data.get('country', '')
-            anonymity = proxy_data.get('anonymity', '')
+            anonymity = proxy_data.get('anonymity', 'unknown')
+            if not anonymity.endswith(' proxy'):
+                anonymity += ' proxy'
 
-            proxies = {
-                'http': f'http://{proxy}',
-                'https': f'https://{proxy}' if is_https else None
-            }
-
-            # Test HTTP proxy
+            # Test HTTP proxy first
+            http_works = False
             try:
+                proxies = {
+                    'http': f'http://{proxy}',
+                    'https': None  # Don't use HTTPS for HTTP test
+                }
                 response = requests.get(
                     HTTP_URL,
                     proxies=proxies,
@@ -86,17 +88,21 @@ class alive_ip(threading.Thread):
                             'country': country,
                             'anonymity': anonymity
                         })
-                    return True
+                    http_works = True
             except Exception as e:
                 logger.debug(f"HTTP proxy failed: {proxy} - {str(e)}")
 
             # Test HTTPS proxy if supported
             if is_https:
                 try:
+                    proxies = {
+                        'https': f'https://{proxy}'
+                    }
                     response = requests.get(
                         HTTPS_URL,
-                        proxies={'https': f'https://{proxy}'},
-                        timeout=REQUEST_TIMEOUT
+                        proxies=proxies,
+                        timeout=REQUEST_TIMEOUT,
+                        verify=True  # Enforce SSL verification
                     )
                     if response.status_code == 200:
                         logger.debug(f"Working HTTPS proxy found: {proxy}")
@@ -111,7 +117,8 @@ class alive_ip(threading.Thread):
                 except Exception as e:
                     logger.debug(f"HTTPS proxy failed: {proxy} - {str(e)}")
 
-            return False
+            return http_works
+
         except Exception as e:
             logger.error(f"Error validating proxy: {str(e)}")
             return False
@@ -205,14 +212,17 @@ def generate_csv(working_proxies):
             writer.writerow(['IP Address', 'Port', 'Code', 'Country', 'Anonymity', 'Google', 'Https', 'Last Checked'])
             for proxy in working_proxies:
                 proxy_parts = proxy['proxy'].split(':')
+                anonymity = proxy.get('anonymity', 'unknown')
+                if not anonymity.endswith(' proxy'):
+                    anonymity += ' proxy'
                 writer.writerow([
                     proxy_parts[0],  # IP
                     proxy_parts[1],  # Port
                     '',  # Code
-                    proxy['country'],
-                    proxy['anonymity'].replace(' proxy', ''),  # Normalize anonymity format
+                    proxy.get('country', ''),  # Country
+                    anonymity.replace(' proxy', ''),  # Normalize anonymity format
                     False,  # Google
-                    proxy['type'] == 'https',  # Https
+                    proxy.get('type', '') == 'https',  # Https
                     datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Last Checked
                 ])
             logger.debug(f"Wrote {len(working_proxies)} proxies to CSV file")

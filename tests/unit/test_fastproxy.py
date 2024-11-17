@@ -309,14 +309,12 @@ class TestFastProxy(unittest.TestCase):
     @patch('builtins.open', new_callable=mock_open)
     @patch('os.path.exists')
     @patch('os.makedirs')
-    @patch('fastProxy.fastProxy.alive_queue')
-    def test_generate_csv(self, mock_queue, mock_makedirs, mock_exists, mock_file):
+    def test_generate_csv(self, mock_makedirs, mock_exists, mock_file):
         # Test directory creation when directory doesn't exist
         mock_exists.return_value = False
-        mock_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
-        mock_queue.empty.return_value = False
+        working_proxies = [{'proxy': '127.0.0.1:8080', 'type': 'http', 'country': 'US', 'anonymity': 'elite'}]
 
-        generate_csv()
+        generate_csv(working_proxies)
         mock_makedirs.assert_called_once_with('proxy_list', exist_ok=True)
         mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
 
@@ -326,7 +324,7 @@ class TestFastProxy(unittest.TestCase):
 
         # Test when directory already exists - makedirs should still be called with exist_ok=True
         mock_exists.return_value = True
-        generate_csv()
+        generate_csv(working_proxies)
         mock_makedirs.assert_called_once_with('proxy_list', exist_ok=True)
         mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
 
@@ -516,26 +514,22 @@ class TestFastProxy(unittest.TestCase):
 
         with patch('builtins.open', return_value=mock_file) as mock_file_open, \
              patch('os.path.exists', return_value=True), \
-             patch('os.makedirs') as mock_makedirs, \
-             patch('fastProxy.fastProxy.alive_queue') as mock_queue:
+             patch('os.makedirs') as mock_makedirs:
 
-            # Configure mock queue to be empty
-            mock_queue.queue = []
-            mock_queue.empty.return_value = True
-
-            # Test with empty queue
-            generate_csv()
+            # Test with empty list
+            working_proxies = []
+            generate_csv(working_proxies)
             mock_makedirs.assert_not_called()
             mock_file_open.assert_not_called()
 
             # Test with IOError during write
-            mock_queue.empty.return_value = False
-            mock_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
+            working_proxies = [{'proxy': '127.0.0.1:8080', 'type': 'http', 'country': 'US', 'anonymity': 'elite'}]
             mock_file_open.side_effect = IOError("Mock open error")
 
             # Use logger.error to capture the error message
             with patch('fastProxy.logger.logger.error') as mock_logger:
-                generate_csv()
+                with pytest.raises(IOError):
+                    generate_csv(working_proxies)
                 mock_logger.assert_called_with("Error generating CSV: Mock open error")
 
     def test_fetch_proxies_no_valid_proxies(self):
@@ -662,29 +656,27 @@ class TestFastProxy(unittest.TestCase):
 
     def test_csv_generation_paths(self):
         """Test CSV generation with different paths"""
-        proxy = {'ip': '127.0.0.1', 'port': '8080', 'code': 'US', 'country': 'United States',
-                'anonymity': 'elite', 'google': True, 'https': True, 'last_checked': '1s'}
+        working_proxies = [{
+            'proxy': '127.0.0.1:8080',
+            'type': 'http',
+            'country': 'United States',
+            'anonymity': 'elite proxy'
+        }]
 
-        # Test with queue-based proxies
-        with patch('fastProxy.fastProxy.alive_queue') as mock_queue, \
-             patch('os.path.exists', return_value=False), \
+        # Test with new directory
+        with patch('os.path.exists', return_value=False), \
              patch('os.makedirs') as mock_makedirs, \
              patch('builtins.open', new_callable=mock_open) as mock_file:
-            # Set up the mock queue
-            mock_queue.queue = [proxy]
-            generate_csv()
+            generate_csv(working_proxies)
             mock_makedirs.assert_called_once()
             mock_file.assert_called_once()
             handle = mock_file()
             handle.write.assert_called()
 
         # Test with existing directory
-        with patch('fastProxy.fastProxy.alive_queue') as mock_queue, \
-             patch('os.path.exists', return_value=True), \
+        with patch('os.path.exists', return_value=True), \
              patch('builtins.open', new_callable=mock_open) as mock_file:
-            # Set up the mock queue
-            mock_queue.queue = [proxy]
-            generate_csv()
+            generate_csv(working_proxies)
             mock_file.assert_called_once()
             handle = mock_file()
             handle.write.assert_called()
