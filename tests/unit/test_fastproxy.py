@@ -322,10 +322,10 @@ class TestFastProxy(unittest.TestCase):
         mock_makedirs.reset_mock()
         mock_file.reset_mock()
 
-        # Test when directory already exists
+        # Test when directory already exists - makedirs should still be called with exist_ok=True
         mock_exists.return_value = True
         generate_csv()
-        mock_makedirs.assert_not_called()
+        mock_makedirs.assert_called_once_with('proxy_list', exist_ok=True)
         mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
 
     @patch('fastProxy.fastProxy.alive_queue')
