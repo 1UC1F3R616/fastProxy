@@ -5,6 +5,7 @@ import threading
 from queue import Queue
 import csv
 import os
+from .logger import logger
 
 # Constants
 HTTP_URL = 'http://httpbin.org/ip'
@@ -48,15 +49,15 @@ class alive_ip(threading.Thread):
                 'https': f'http://{proxy}'
             }
 
-            print(f"[DEBUG] Testing HTTP for {proxy}")
+            logger.debug(f"Testing HTTP for {proxy}")
             r = requests.get(HTTP_URL, proxies=proxy_dict, timeout=REQUEST_TIMEOUT)
             if r.status_code == 200:
-                print(f"[DEBUG] HTTP Proxy {proxy} is working!")
+                logger.info(f"HTTP Proxy {proxy} is working!")
                 alive_queue.put(proxy)
                 return True
 
         except requests.exceptions.RequestException as e:
-            print(f"[DEBUG] HTTP test failed for {proxy}: {str(e)}")
+            logger.debug(f"HTTP test failed for {proxy}: {str(e)}")
 
             try:
                 # Try HTTPS
@@ -64,14 +65,14 @@ class alive_ip(threading.Thread):
                     'http': f'https://{proxy}',
                     'https': f'https://{proxy}'
                 }
-                print(f"[DEBUG] Testing HTTPS for {proxy}")
+                logger.debug(f"Testing HTTPS for {proxy}")
                 r = requests.get(HTTPS_URL, proxies=proxy_dict, timeout=REQUEST_TIMEOUT)
                 if r.status_code == 200:
-                    print(f"[DEBUG] HTTPS Proxy {proxy} is working!")
+                    logger.info(f"HTTPS Proxy {proxy} is working!")
                     alive_queue.put(proxy)
                     return True
             except Exception as e:
-                print(f"[DEBUG] HTTPS test failed for {proxy}: {str(e)}")
+                logger.debug(f"HTTPS test failed for {proxy}: {str(e)}")
                 return False
 
         return False
@@ -85,16 +86,17 @@ class alive_ip(threading.Thread):
             self.check_proxy(proxy)
             self.queue.task_done()
 
-def fetch_proxies(c=None, t=None, g=None, a=None):
+def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50):
     """Main function to fetch and validate proxies"""
     alter_globals(c, t, g, a)
 
     try:
-        print("[DEBUG] Fetching proxy list...")
+        logger.info("Starting proxy fetching process...")
+        logger.debug("Fetching proxy list from source...")
         s = requests.session()
         r = s.get(PROXY_SOURCE)
         if r.status_code != 200:
-            print(f"[DEBUG] Failed to fetch proxies: {r.status_code}")
+            logger.error(f"Failed to fetch proxies: {r.status_code}")
             return []
 
         page = soup(r.text, 'html.parser')
@@ -108,13 +110,14 @@ def fetch_proxies(c=None, t=None, g=None, a=None):
                 break
 
         if not proxy_table:
-            print("[DEBUG] Could not find proxy table")
+            logger.error("Could not find proxy table in source")
             return []
 
         proxies = []
         rows = proxy_table.find_all('tr')[1:]  # Skip header row
+        rows = rows[:max_proxies]  # Limit number of proxies to test
 
-        print(f"[DEBUG] Found {len(rows)} potential proxy entries")
+        logger.info(f"Found {len(rows)} potential proxy entries (limited to {max_proxies})")
         for row in rows:
             try:
                 cols = row.find_all('td')
@@ -124,20 +127,20 @@ def fetch_proxies(c=None, t=None, g=None, a=None):
                     if ip and port and port.isdigit():
                         proxies.append(f"{ip}:{port}")
             except Exception as e:
-                print(f"[DEBUG] Error parsing proxy row: {str(e)}")
+                logger.error(f"Error parsing proxy row: {str(e)}")
                 continue
 
         if not proxies:
-            print("[DEBUG] No valid proxies found")
+            logger.warning("No valid proxies found in source")
             return []
 
-        print(f"[DEBUG] Successfully parsed {len(proxies)} valid proxies")
+        logger.info(f"Successfully parsed {len(proxies)} valid proxies")
 
         queue = Queue()
         threads = []
 
         # Create thread pool
-        print(f"[DEBUG] Starting {THREAD_COUNT} validation threads")
+        logger.info(f"Starting {THREAD_COUNT} validation threads")
         for _ in range(THREAD_COUNT):
             t = alive_ip(queue)
             t.daemon = True
@@ -152,40 +155,53 @@ def fetch_proxies(c=None, t=None, g=None, a=None):
         for _ in range(THREAD_COUNT):
             queue.put(None)
 
-        # Wait for all threads to complete
+        # Wait for all threads to complete with timeout
+        import time
+        start_time = time.time()
         for t in threads:
-            t.join()
+            remaining_time = max(0, 60 - (time.time() - start_time))  # 60-second total timeout
+            t.join(timeout=remaining_time)
+            if time.time() - start_time > 60:
+                logger.warning("Validation timed out after 60 seconds")
+                break
 
         working_proxies = list(alive_queue.queue)
-        print(f"[DEBUG] Found {len(working_proxies)} working proxies")
+        logger.info(f"Found {len(working_proxies)} working proxies")
 
         if GENERATE_CSV:
+            logger.info("Generating CSV file...")
             generate_csv()
+            logger.info("CSV file generated successfully")
 
         return working_proxies
 
     except Exception as e:
-        print(f"[DEBUG] Error in fetch_proxies: {str(e)}")
+        logger.error(f"Error in fetch_proxies: {str(e)}", exc_info=True)
         return []
 
 def generate_csv():
     """Generate CSV file with working proxies"""
-    if not os.path.exists('proxy_list'):
-        os.makedirs('proxy_list')
+    try:
+        if not os.path.exists('proxy_list'):
+            os.makedirs('proxy_list')
+            logger.debug("Created proxy_list directory")
 
-    working_proxies = list(alive_queue.queue)
-    with open('proxy_list/working_proxies.csv', 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Proxy'])
-        for proxy in working_proxies:
-            writer.writerow([proxy])
+        working_proxies = list(alive_queue.queue)
+        with open('proxy_list/working_proxies.csv', 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Proxy'])
+            for proxy in working_proxies:
+                writer.writerow([proxy])
+        logger.debug(f"Wrote {len(working_proxies)} proxies to CSV file")
+    except Exception as e:
+        logger.error(f"Error generating CSV: {str(e)}", exc_info=True)
 
 def printer():
     """Print working proxies"""
     working_proxies = list(alive_queue.queue)
-    print(f"\nWorking Proxies: {len(working_proxies)}")
+    logger.info(f"\nWorking Proxies: {len(working_proxies)}")
     for proxy in working_proxies:
-        print(proxy)
+        logger.info(proxy)
 
 def main(proxies=None):
     """CLI entry point"""
