@@ -343,9 +343,9 @@ class TestFastProxy:
             assert len(result) == 0
 
     def test_table_parsing_edge_cases(self):
-        """Test edge cases in proxy table parsing"""
+        """Test table parsing edge cases"""
         with patch('requests.session') as mock_session:
-            # Test missing columns
+            # Test malformed row data
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = '''
@@ -353,10 +353,16 @@ class TestFastProxy:
                 <tr>
                     <th>IP Address</th>
                     <th>Port</th>
+                    <th>Code</th>
+                    <th>Country</th>
+                    <th>Anonymity</th>
+                    <th>Google</th>
+                    <th>Https</th>
+                    <th>Last Checked</th>
                 </tr>
                 <tr>
-                    <td>127.0.0.1</td>
-                    <td>8080</td>
+                    <td>invalid</td>
+                    <td>data</td>
                 </tr>
             </table>
             '''
@@ -364,7 +370,35 @@ class TestFastProxy:
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
 
-            # Test invalid port
+            # Test row with missing data
+            mock_response.text = '''
+            <table>
+                <tr>
+                    <th>IP Address</th>
+                    <th>Port</th>
+                    <th>Code</th>
+                    <th>Country</th>
+                    <th>Anonymity</th>
+                    <th>Google</th>
+                    <th>Https</th>
+                    <th>Last Checked</th>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </table>
+            '''
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
+
+            # Test row with invalid port
             mock_response.text = '''
             <table>
                 <tr>
@@ -394,6 +428,10 @@ class TestFastProxy:
 
     def test_thread_management_edge_cases(self):
         """Test thread management edge cases"""
+        # Clear any existing proxies from previous tests
+        while not alive_queue.empty():
+            alive_queue.get()
+
         class FailingThread(threading.Thread):
             def start(self):
                 raise RuntimeError("Thread start failed")
@@ -426,12 +464,17 @@ class TestFastProxy:
 
         # Test thread timeout
         with patch('fastProxy.fastProxy.alive_ip', return_value=ValidationFailingThread()):
-            with patch('time.time', side_effect=[0, 30, 61]):  # Simulate timeout
+            # Provide enough time values for all calls including logging
+            with patch('time.time', side_effect=[0, 30, 30, 61, 61, 61, 61, 61, 61, 61]):
                 proxies = fetch_proxies(max_proxies=1)
                 assert proxies == []
 
     def test_generate_csv_error_handling(self):
         """Test CSV generation error handling"""
+        # Clear any existing proxies from previous tests
+        while not alive_queue.empty():
+            alive_queue.get()
+
         # Test with no working proxies
         with patch('builtins.open', mock_open()) as mock_file:
             generate_csv()
@@ -445,7 +488,13 @@ class TestFastProxy:
             generate_csv()
             assert len(list(alive_queue.queue)) == 1  # Queue should remain unchanged
 
+        # Clear queue for next test
+        while not alive_queue.empty():
+            alive_queue.get()
+
         # Test with working proxies and successful write
+        proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
+        alive_queue.put(proxy)
         with patch('builtins.open', mock_open()) as mock_file:
             generate_csv()
             mock_file.assert_called_once()
