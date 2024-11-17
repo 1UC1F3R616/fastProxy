@@ -39,9 +39,12 @@ class FreeProxyListSource(ProxySource):
                     proxy = {
                         'ip': cols[0].text.strip(),
                         'port': cols[1].text.strip(),
+                        'code': cols[2].text.strip(),
                         'country': cols[3].text.strip(),
-                        'anonymity': cols[4].text.strip(),
-                        'https': 'yes' if cols[6].text.strip().lower() == 'yes' else 'no'
+                        'anonymity': cols[4].text.strip().lower(),
+                        'google': cols[5].text.strip().lower(),
+                        'https': cols[6].text.strip().lower(),
+                        'last_checked': cols[7].text.strip()
                     }
                     if proxy['ip'] and proxy['port'].isdigit():
                         proxies.append(proxy)
