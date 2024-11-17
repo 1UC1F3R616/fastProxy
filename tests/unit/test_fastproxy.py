@@ -393,60 +393,64 @@ class TestFastProxy:
             assert proxies == []
 
     def test_thread_management_edge_cases(self):
-        """Test thread management edge cases and error handling"""
-        with patch('threading.Thread') as mock_thread_class:
-            # Test thread creation failure
-            mock_thread_class.side_effect = Exception("Thread creation failed")
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when thread creation fails"
+        """Test thread management edge cases"""
+        class FailingThread(threading.Thread):
+            def start(self):
+                raise RuntimeError("Thread start failed")
+            def join(self):
+                pass
 
-            # Test thread start failure
-            class FailingThread(threading.Thread):
-                def start(self):
-                    raise RuntimeError("Thread start failed")
-                def join(self):
-                    pass
-            mock_thread_class.side_effect = None
-            mock_thread_class.return_value = FailingThread()
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when thread start fails"
+        class JoinFailingThread(threading.Thread):
+            def start(self):
+                pass
+            def join(self, timeout=None):
+                raise RuntimeError("Thread join failed")
 
-            # Test thread join failure
-            class JoinFailingThread(threading.Thread):
-                def start(self):
-                    pass
-                def join(self):
-                    raise RuntimeError("Thread join failed")
-            mock_thread_class.return_value = JoinFailingThread()
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when thread join fails"
+        class ValidationFailingThread(threading.Thread):
+            def start(self):
+                pass
+            def join(self, timeout=None):
+                pass
+            def run(self):
+                time.sleep(2)  # Simulate long-running validation
 
-            # Test queue operation failure
-            with patch('queue.Queue.get') as mock_get:
-                mock_get.side_effect = Exception("Queue operation failed")
-                result = fetch_proxies(max_proxies=1)
-                assert result == [], "Should return empty list when queue operation fails"
+        # Test thread start failure
+        with patch('fastProxy.fastProxy.alive_ip', return_value=FailingThread()):
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
 
-            # Test proxy validation failure with specific error
-            class ValidationFailingThread(threading.Thread):
-                def start(self):
-                    pass
-                def join(self):
-                    pass
-                def run(self):
-                    raise requests.exceptions.RequestException("Validation failed")
-            mock_thread_class.return_value = ValidationFailingThread()
-            result = fetch_proxies(max_proxies=1)
-            assert result == [], "Should return empty list when validation fails"
+        # Test thread join failure
+        with patch('fastProxy.fastProxy.alive_ip', return_value=JoinFailingThread()):
+            proxies = fetch_proxies(max_proxies=1)
+            assert proxies == []
+
+        # Test thread timeout
+        with patch('fastProxy.fastProxy.alive_ip', return_value=ValidationFailingThread()):
+            with patch('time.time', side_effect=[0, 30, 61]):  # Simulate timeout
+                proxies = fetch_proxies(max_proxies=1)
+                assert proxies == []
 
     def test_generate_csv_error_handling(self):
-        """Test error handling in generate_csv function"""
-        # Mock os.path.exists to return True
-        with patch('os.path.exists', return_value=True), \
-             patch('builtins.open', side_effect=PermissionError("Permission denied")):
-            # Should handle file permission error
+        """Test CSV generation error handling"""
+        # Test with no working proxies
+        with patch('builtins.open', mock_open()) as mock_file:
             generate_csv()
-            # No assertion needed as we're just testing error handling
+            mock_file.assert_not_called()
+
+        # Test with working proxies but file write error
+        proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
+        alive_queue.put(proxy)
+
+        with patch('builtins.open', side_effect=IOError("Permission denied")):
+            generate_csv()
+            assert len(list(alive_queue.queue)) == 1  # Queue should remain unchanged
+
+        # Test with working proxies and successful write
+        with patch('builtins.open', mock_open()) as mock_file:
+            generate_csv()
+            mock_file.assert_called_once()
+            handle = mock_file()
+            handle.write.assert_called()
 
     def test_fetch_proxies_no_valid_proxies(self):
         """Test fetch_proxies when no valid proxies are found"""
@@ -519,39 +523,48 @@ class TestFastProxy:
             main(proxies="127.0.0.1:8080")
 
     def test_https_proxy_validation(self):
-        """Test HTTPS proxy validation"""
+        """Test HTTPS proxy validation scenarios"""
+        queue = Queue()
+        thread = alive_ip(queue)
         proxy_data = {
             'ip': '127.0.0.1',
             'port': '8080',
             'code': 'US',
             'country': 'United States',
-            'anonymity': 'elite',
+            'anonymity': 'elite proxy',
             'google': True,
             'https': True,
             'last_checked': '1 minute ago'
         }
 
-        # Mock requests.get for both HTTP and HTTPS
         with patch('requests.get') as mock_get:
-            # Mock HTTP failure
+            # Test HTTPS with non-200 status code
             mock_get.side_effect = [
                 requests.exceptions.RequestException("HTTP failed"),
-                MagicMock(status_code=200)  # HTTPS success
+                MagicMock(status_code=403)
             ]
+            assert thread.check_proxy(proxy_data) is False
 
-            thread = alive_ip(Queue())
-            result = thread.check_proxy(proxy_data)
-            assert result is True
-            assert proxy_data['https'] is True
-
-            # Mock both HTTP and HTTPS failure
+            # Test HTTPS with connection reset
             mock_get.side_effect = [
                 requests.exceptions.RequestException("HTTP failed"),
-                requests.exceptions.RequestException("HTTPS failed")
+                requests.exceptions.ConnectionError("Connection reset")
             ]
+            assert thread.check_proxy(proxy_data) is False
 
-            result = thread.check_proxy(proxy_data)
-            assert result is False
+            # Test HTTPS with SSL error
+            mock_get.side_effect = [
+                requests.exceptions.RequestException("HTTP failed"),
+                requests.exceptions.SSLError("SSL verification failed")
+            ]
+            assert thread.check_proxy(proxy_data) is False
+
+            # Test HTTPS with successful response after retry
+            mock_get.side_effect = [
+                requests.exceptions.RequestException("HTTP failed"),
+                MagicMock(status_code=200)
+            ]
+            assert thread.check_proxy(proxy_data) is True
 
     def test_csv_generation_paths(self):
         """Test CSV generation paths"""
