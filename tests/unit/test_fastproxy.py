@@ -315,7 +315,7 @@ class TestFastProxy(unittest.TestCase):
         mock_queue.empty.return_value = False
 
         generate_csv()
-        mock_makedirs.assert_called_once_with('proxy_list')
+        mock_makedirs.assert_called_once_with('proxy_list', exist_ok=True)
         mock_file.assert_called_with('proxy_list/working_proxies.csv', 'w', newline='')
 
         # Reset mocks for next test
