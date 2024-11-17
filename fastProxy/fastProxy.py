@@ -259,21 +259,22 @@ def main(proxies=None):
             if not proxy or ':' not in proxy:
                 raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
             try:
-                ip, port = proxy.split(':')
+                parts = proxy.split(':')
+                if len(parts) != 2:
+                    raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
+                ip, port = parts
                 if not ip or not port:
                     raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
                 # Validate port number
                 try:
                     port_num = int(port)
                     if port_num < 1 or port_num > 65535:
-                        raise ValueError("Port number must be between 1 and 65535")
-                except ValueError as e:
-                    if "Port number must be" in str(e):
-                        raise
-                    raise ValueError("Port must be a valid number")
+                        raise IndexError("Port number must be between 1 and 65535")
+                except ValueError:
+                    raise IndexError("Port must be a valid number")
                 valid_proxies.append({'ip': ip, 'port': port})
-            except ValueError as e:
-                raise ValueError(str(e))
+            except ValueError:
+                raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
 
         return fetch_proxies(proxies=valid_proxies)
     return fetch_proxies()
