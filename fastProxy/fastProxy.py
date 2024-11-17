@@ -98,7 +98,15 @@ def fetch_proxies(c=None, t=None, g=None, a=None):
             return []
 
         page = soup(r.text, 'html.parser')
-        proxy_table = page.find('table', {'id': 'proxylisttable'})
+        # Find the first table with the correct headers
+        tables = page.find_all('table')
+        proxy_table = None
+        for table in tables:
+            headers = [th.get_text().strip() for th in table.find_all('th')]
+            if 'IP Address' in headers and 'Port' in headers:
+                proxy_table = table
+                break
+
         if not proxy_table:
             print("[DEBUG] Could not find proxy table")
             return []
