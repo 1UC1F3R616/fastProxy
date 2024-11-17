@@ -475,21 +475,24 @@ class TestFastProxy:
 
         # Test thread start failure
         with patch('fastProxy.fastProxy.alive_ip', return_value=FailingThread()), \
-             patch('time.time') as mock_time:
+             patch('time.time') as mock_time, \
+             patch('fastProxy.fastProxy.WORKING_PROXIES', []):
             mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
 
         # Test thread join failure
         with patch('fastProxy.fastProxy.alive_ip', return_value=JoinFailingThread()), \
-             patch('time.time') as mock_time:
+             patch('time.time') as mock_time, \
+             patch('fastProxy.fastProxy.WORKING_PROXIES', []):
             mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
 
         # Test thread timeout
         with patch('fastProxy.fastProxy.alive_ip', return_value=ValidationFailingThread()), \
-             patch('time.time') as mock_time:
+             patch('time.time') as mock_time, \
+             patch('fastProxy.fastProxy.WORKING_PROXIES', []):
             mock_time.side_effect = [0, 1, 2, 3, 4, 5] * 100  # Ensure enough values
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
