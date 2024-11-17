@@ -16,8 +16,8 @@ HTTP_URL = 'http://httpbin.org/ip'
 HTTPS_URL = 'https://httpbin.org/ip'
 
 # Global variables for configuration
-THREAD_COUNT = 100
-REQUEST_TIMEOUT = 4
+THREAD_COUNT = 20  # Reduced from 100 to avoid overwhelming
+REQUEST_TIMEOUT = 10  # Increased from 4 to allow slower proxies
 GENERATE_CSV = False
 ALL_PROXIES = False
 WORKING_PROXIES = []
@@ -50,69 +50,75 @@ def alter_globals(c=None, t=None, g=None, a=None):
         logger.debug(f"Updated ALL_PROXIES to {a}")
 
 class alive_ip(threading.Thread):
-    """Thread class for checking proxy status"""
+    """Thread class for validating proxies"""
 
-    def __init__(self, queue):
+    def __init__(self, q, working_proxies):
         threading.Thread.__init__(self)
-        self.queue = queue
-
-    def check_proxy(self, proxy):
-        """Checks if Proxy is Alive with proper protocol detection"""
-        try:
-            # Check if required fields exist
-            if not all(key in proxy for key in ['ip', 'port']):
-                logger.warning(f"Malformed proxy data: {proxy}")
-                return False
-
-            # First try HTTP
-            proxy_str = f"{proxy['ip']}:{proxy['port']}"
-            proxies = {
-                'http': f'http://{proxy_str}',
-                'https': f'https://{proxy_str}' if proxy.get('https', False) else None
-            }
-            proxies = {k: v for k, v in proxies.items() if v is not None}
-
-            try:
-                r = requests.get('http://httpbin.org/ip',
-                                 proxies=proxies,
-                                 timeout=REQUEST_TIMEOUT,
-                                 headers={'User-Agent': 'Mozilla/5.0'})
-                if r.status_code == 200:
-                    # For test mocks, assume success if status is 200
-                    if not hasattr(r, 'text') or proxy['ip'] in r.text:
-                        self.queue.put(proxy)
-                        return True
-            except Exception as e:
-                logger.debug(f"HTTP check failed for {proxy_str}: {str(e)}")
-
-            # If HTTP failed and HTTPS is available, try HTTPS
-            if proxy.get('https', False):
-                try:
-                    r = requests.get('https://httpbin.org/ip',
-                                     proxies=proxies,
-                                     timeout=REQUEST_TIMEOUT,
-                                     headers={'User-Agent': 'Mozilla/5.0'})
-                    if r.status_code == 200:
-                        # For test mocks, assume success if status is 200
-                        if not hasattr(r, 'text') or proxy['ip'] in r.text:
-                            self.queue.put(proxy)
-                            return True
-                except Exception as e:
-                    logger.debug(f"HTTPS check failed for {proxy_str}: {str(e)}")
-
-            return False
-        except Exception as e:
-            logger.error(f"Error checking proxy {proxy}: {str(e)}")
-            return False
+        self.q = q
+        self.working_proxies = working_proxies
 
     def run(self):
-        """Run the thread"""
         while True:
-            proxy_data = self.queue.get()
-            if proxy_data is None:
+            try:
+                # Get proxy from queue with timeout
+                proxy_data = self.q.get(timeout=1)
+                proxy = proxy_data['proxy']
+                is_https = proxy_data['is_https']
+                country = proxy_data['country']
+                anonymity = proxy_data['anonymity']
+
+                proxies = {
+                    'http': f'http://{proxy}',
+                    'https': f'https://{proxy}' if is_https else None
+                }
+
+                # Test HTTP proxy
+                try:
+                    response = requests.get(
+                        HTTP_URL,
+                        proxies=proxies,
+                        timeout=REQUEST_TIMEOUT
+                    )
+                    if response.status_code == 200:
+                        logger.debug(f"Working HTTP proxy found: {proxy}")
+                        with threading.Lock():
+                            self.working_proxies.append({
+                                'proxy': proxy,
+                                'type': 'http',
+                                'country': country,
+                                'anonymity': anonymity
+                            })
+                except:
+                    pass
+
+                # Test HTTPS proxy if supported
+                if is_https:
+                    try:
+                        response = requests.get(
+                            HTTPS_URL,
+                            proxies={'https': f'https://{proxy}'},
+                            timeout=REQUEST_TIMEOUT
+                        )
+                        if response.status_code == 200:
+                            logger.debug(f"Working HTTPS proxy found: {proxy}")
+                            with threading.Lock():
+                                self.working_proxies.append({
+                                    'proxy': proxy,
+                                    'type': 'https',
+                                    'country': country,
+                                    'anonymity': anonymity
+                                })
+                    except:
+                        pass
+
+            except queue.Empty:
                 break
-            self.check_proxy(proxy_data)
-            self.queue.task_done()
+            except Exception as e:
+                logger.error(f"Error validating proxy: {str(e)}")
+                continue
+
+            finally:
+                self.q.task_done()
 
 def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
     """Main function to fetch and validate proxies"""
@@ -135,46 +141,44 @@ def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
 
         logger.info(f"Successfully parsed {len(proxy_list)} valid proxies")
 
-        queue = Queue()
+        # Create queue and threads for validation
+        proxy_queue = Queue()
         threads = []
-
-        # Create thread pool
-        logger.info(f"Starting {THREAD_COUNT} validation threads")
-        for _ in range(THREAD_COUNT):
-            t = alive_ip(queue)
-            t.daemon = True
-            t.start()
-            threads.append(t)
+        working_proxies = []
 
         # Add proxies to queue
         for proxy in proxy_list:
-            queue.put(proxy)
+            proxy_str = f"{proxy['ip']}:{proxy['port']}"
+            proxy_queue.put({
+                'proxy': proxy_str,
+                'is_https': proxy['https'] == 'yes',
+                'country': proxy['country'],
+                'anonymity': proxy['anonymity']
+            })
 
-        # Add None to queue to signal thread termination
-        for _ in range(THREAD_COUNT):
-            queue.put(None)
+        logger.info(f"Starting {len(proxy_list)} validation threads")
 
-        # Wait for all threads to complete with timeout
-        start_time = time.time()
-        for t in threads:
-            remaining_time = max(0, 60 - (time.time() - start_time))  # 60-second total timeout
-            t.join(timeout=remaining_time)
-            if time.time() - start_time > 60:
-                logger.warning("Validation timed out after 60 seconds")
-                break
+        # Create and start validation threads
+        for _ in range(min(len(proxy_list), THREAD_COUNT)):
+            thread = alive_ip(proxy_queue, working_proxies)
+            thread.start()
+            threads.append(thread)
 
-        working_proxies = list(alive_queue.queue)
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
         logger.info(f"Found {len(working_proxies)} working proxies")
 
-        if GENERATE_CSV:
+        if working_proxies and GENERATE_CSV:
             logger.info("Generating CSV file...")
-            generate_csv()
+            generate_csv(working_proxies)
             logger.info("CSV file generated successfully")
 
         return working_proxies
 
     except Exception as e:
-        logger.error(f"Error in fetch_proxies: {str(e)}", exc_info=True)
+        logger.error(f"Error in fetch_proxies: {str(e)}")
         return []
 
 def generate_csv():
