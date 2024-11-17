@@ -182,9 +182,20 @@ def fetch_proxies(c=None, t=None, g=None, a=None, max_proxies=50, proxies=None):
             thread.start()
             threads.append(thread)
 
-        # Wait for all threads to complete
+        # Wait for all threads to complete with timeout
+        start_time = time.time()
         for thread in threads:
-            thread.join()
+            try:
+                remaining_time = max(0, REQUEST_TIMEOUT - (time.time() - start_time))
+                thread.join(timeout=remaining_time)
+            except TimeoutError:
+                logger.warning(f"Thread join timeout after {REQUEST_TIMEOUT} seconds")
+                continue
+
+        # Check if we exceeded total timeout
+        if time.time() - start_time > REQUEST_TIMEOUT:
+            logger.warning(f"Total validation process exceeded timeout of {REQUEST_TIMEOUT} seconds")
+            return []
 
         logger.info(f"Found {len(working_proxies)} working proxies")
 

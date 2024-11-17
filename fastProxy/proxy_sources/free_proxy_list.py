@@ -35,7 +35,7 @@ class FreeProxyListSource(ProxySource):
             rows = proxy_table.find_all('tr')[1:]  # Skip header row
             for row in rows:
                 cols = row.find_all('td')
-                if len(cols) >= 8:  # Changed from 7 to 8 since we need all 8 columns
+                if len(cols) >= 8:  # Need all 8 columns
                     proxy = {
                         'ip': cols[0].text.strip(),
                         'port': cols[1].text.strip(),
@@ -46,9 +46,9 @@ class FreeProxyListSource(ProxySource):
                         'https': cols[6].text.strip().lower(),
                         'last_checked': cols[7].text.strip()
                     }
-                    # Debug log to see what's being filtered
-                    logger.debug(f"Processing proxy: {proxy}")
-                    proxies.append(proxy)  # Remove validation for now to see what's happening
+                    # Only validate IP and port format
+                    if proxy['ip'] and proxy['port'].isdigit():
+                        proxies.append(proxy)
 
             logger.info(f"Found {len(proxies)} proxies from free-proxy-list.net")
 
