@@ -3,190 +3,181 @@ import requests
 from bs4 import BeautifulSoup as soup
 import threading
 from queue import Queue
+import csv
+import os
 
+# Constants
+HTTP_URL = 'http://httpbin.org/ip'
+HTTPS_URL = 'https://httpbin.org/ip'
+PROXY_SOURCE = 'https://free-proxy-list.net/'
 
-# Defined | Not Supposed to be Altered
-s = requests.session()
-r1 = s.get('https://free-proxy-list.net/')
-page = soup(r1.text, 'html.parser')
-tr_container = page.find_all('tr')
-
-url = 'https://httpbin.org/ip' # End-Point to Test the response speed of ip address
-ips = page.find_all('tr')[1:] # This is to skip the 1st header and take the leftout content. but it does contain some garbage
-
-alive_queue = Queue() # It will collect the working ips
-
-
-# Global Variables
+# Global variables for configuration
 THREAD_COUNT = 100
 REQUEST_TIMEOUT = 4
 GENERATE_CSV = False
-ALL_IPS = False
+ALL_PROXIES = False
 
+# Global queue for storing working proxies
+alive_queue = Queue()
 
-def alter_globals(c=100, t=4, g=False, a=False):
-    global THREAD_COUNT
-    global REQUEST_TIMEOUT
-    global GENERATE_CSV
-    global ALL_IPS
-
-    try:
-        c = int(c)
-        t = int(t)
-    except Exception as e:
-        print(e)
-        return
-
-    if c < 0:
-        THREAD_COUNT = 1
-        print("[!] Negative Values are not Entertained")
-        print("[*] Thread Count Set to 100")
-    elif c==0:
-        THREAD_COUNT = 1
-
-    if t < 0:
-        print("[!] Negative Values are not Entertained")
-        print("[*] Request Timeout Set to 4 sec")
-    
-    THREAD_COUNT = c
-    REQUEST_TIMEOUT = t
-
-    print("[-] Threads: {}\tRequest Timeout:{}".format(THREAD_COUNT, REQUEST_TIMEOUT))
-
-    if g in ['True', 'true', True, 1, 'yes']:
-        GENERATE_CSV = True
-    if a in ['True', 'true', True, 1, 'yes']:
-        ALL_IPS = True
-
+def alter_globals(c=None, t=None, g=None, a=None):
+    """Alter global variables based on parameters"""
+    global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+    if c is not None:
+        THREAD_COUNT = c
+    if t is not None:
+        REQUEST_TIMEOUT = t
+    if g is not None:
+        GENERATE_CSV = g
+    if a is not None:
+        ALL_PROXIES = a
 
 class alive_ip(threading.Thread):
-    """
-    Take ip address and put in alive_queue if it is working
-    """
+    """Thread class for checking proxy status"""
 
     def __init__(self, queue):
-
-        """Initialize the thread"""
         threading.Thread.__init__(self)
         self.queue = queue
 
+    def check_proxy(self, proxy):
+        """Checks if Proxy is Alive with proper protocol detection"""
+        try:
+            # First try HTTP
+            proxy_dict = {
+                'http': f'http://{proxy}',
+                'https': f'http://{proxy}'
+            }
+
+            print(f"[DEBUG] Testing HTTP for {proxy}")
+            r = requests.get(HTTP_URL, proxies=proxy_dict, timeout=REQUEST_TIMEOUT)
+            if r.status_code == 200:
+                print(f"[DEBUG] HTTP Proxy {proxy} is working!")
+                alive_queue.put(proxy)
+                return True
+
+        except requests.exceptions.RequestException as e:
+            print(f"[DEBUG] HTTP test failed for {proxy}: {str(e)}")
+
+            try:
+                # Try HTTPS
+                proxy_dict = {
+                    'http': f'https://{proxy}',
+                    'https': f'https://{proxy}'
+                }
+                print(f"[DEBUG] Testing HTTPS for {proxy}")
+                r = requests.get(HTTPS_URL, proxies=proxy_dict, timeout=REQUEST_TIMEOUT)
+                if r.status_code == 200:
+                    print(f"[DEBUG] HTTPS Proxy {proxy} is working!")
+                    alive_queue.put(proxy)
+                    return True
+            except Exception as e:
+                print(f"[DEBUG] HTTPS test failed for {proxy}: {str(e)}")
+                return False
+
+        return False
+
     def run(self):
         """Run the thread"""
-
         while True:
-            # gets the proxy from the queue
             proxy = self.queue.get()
-
-            # checks the proxy
+            if proxy is None:
+                break
             self.check_proxy(proxy)
-
-            # send a signal to the queue that the job is done
             self.queue.task_done()
 
-    def check_proxy(self, proxy):
-        """Checks if Proxy is Alive"""
-        
-        try:
-            http_proxy = "http://{}".format(proxy)
-            https_proxy = "https://{}".format(proxy)
-            r2 = requests.get(url, proxies={'http':http_proxy, 'https':https_proxy}, timeout=REQUEST_TIMEOUT)
-            
-            if r2.status_code == 200:
-                alive_queue.put(proxy)
-                
-        except Exception as e:
-            pass
+def fetch_proxies(c=None, t=None, g=None, a=None):
+    """Main function to fetch and validate proxies"""
+    alter_globals(c, t, g, a)
 
+    try:
+        print("[DEBUG] Fetching proxy list...")
+        s = requests.session()
+        r = s.get(PROXY_SOURCE)
+        if r.status_code != 200:
+            print(f"[DEBUG] Failed to fetch proxies: {r.status_code}")
+            return []
 
-def main(proxies = ips):
-    """
-    Run the program
-    """
-    queue = Queue()
+        page = soup(r.text, 'html.parser')
+        proxy_table = page.find('table', {'id': 'proxylisttable'})
+        if not proxy_table:
+            print("[DEBUG] Could not find proxy table")
+            return []
 
-    # create a thread pool and give them a queue
-    for i in range(THREAD_COUNT):
-        t = alive_ip(queue)
-        t.setDaemon(True)
-        t.start()
+        proxies = []
+        rows = proxy_table.find_all('tr')[1:]  # Skip header row
 
-    # give the queue some data
-    for proxy in proxies:
-        try:
-            content = proxy.find_all('td')
-            if len(content) != None:
-                ip, port = content[0].get_text(), content[1].get_text()
-                proxy_ = '{}:{}'.format(ip, port)
-                queue.put(proxy_)
+        print(f"[DEBUG] Found {len(rows)} potential proxy entries")
+        for row in rows:
+            try:
+                cols = row.find_all('td')
+                if len(cols) >= 2:
+                    ip = cols[0].get_text().strip()
+                    port = cols[1].get_text().strip()
+                    if ip and port and port.isdigit():
+                        proxies.append(f"{ip}:{port}")
+            except Exception as e:
+                print(f"[DEBUG] Error parsing proxy row: {str(e)}")
+                continue
 
-        except IndexError:
-            pass # List Index Out of Range
-        except Exception as e:
-            print('[!] ' + str(e))
+        if not proxies:
+            print("[DEBUG] No valid proxies found")
+            return []
 
-    # wait for queue to finish
-    queue.join()
+        print(f"[DEBUG] Successfully parsed {len(proxies)} valid proxies")
 
-    return list(alive_queue.queue)
+        queue = Queue()
+        threads = []
 
+        # Create thread pool
+        print(f"[DEBUG] Starting {THREAD_COUNT} validation threads")
+        for _ in range(THREAD_COUNT):
+            t = alive_ip(queue)
+            t.daemon = True
+            t.start()
+            threads.append(t)
+
+        # Add proxies to queue
+        for proxy in proxies:
+            queue.put(proxy)
+
+        # Add None to queue to signal thread termination
+        for _ in range(THREAD_COUNT):
+            queue.put(None)
+
+        # Wait for all threads to complete
+        for t in threads:
+            t.join()
+
+        working_proxies = list(alive_queue.queue)
+        print(f"[DEBUG] Found {len(working_proxies)} working proxies")
+
+        if GENERATE_CSV:
+            generate_csv()
+
+        return working_proxies
+
+    except Exception as e:
+        print(f"[DEBUG] Error in fetch_proxies: {str(e)}")
+        return []
 
 def generate_csv():
-    """Generate a CSV File with all Proxies"""
+    """Generate CSV file with working proxies"""
+    if not os.path.exists('proxy_list'):
+        os.makedirs('proxy_list')
 
-    if ALL_IPS:
-        f = open('all_proxies.csv', 'w')
-        for line in tr_container:
-            content = str(line.getText(separator = ';')) # delimeter is ;
-            if 'Date' in content:
-                break
-            f.write(content + '\n')
-        f.close()
-    else:
-        f = open('working_ips.csv', 'w')
-        for ip in list(alive_queue.queue):
-            f.write(ip + '\n')
-        f.close()
+    working_proxies = list(alive_queue.queue)
+    with open('proxy_list/working_proxies.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Proxy'])
+        for proxy in working_proxies:
+            writer.writerow([proxy])
 
+def printer():
+    """Print working proxies"""
+    working_proxies = list(alive_queue.queue)
+    print(f"\nWorking Proxies: {len(working_proxies)}")
+    for proxy in working_proxies:
+        print(proxy)
 
-def printer(ip_list = list(alive_queue.queue)):
-    """
-    Prints the IP Address of working IPs
-    """
-
-    for ip in list(alive_queue.queue):
-        print(ip)
-
-
-def fetch_proxies(c=100, t=4, g=False, a=False):
-    """
-    Function for import
-    """
-    global THREAD_COUNT
-    global REQUEST_TIMEOUT
-    global GENERATE_CSV
-    global ALL_IPS
-
-    THREAD_COUNT = c
-    REQUEST_TIMEOUT = t
-    GENERATE_CSV = g
-    ALL_IPS = a
-
-    working_ips = main(proxies = ips)
-
-    if GENERATE_CSV == True:
-        generate_csv()
-
-    return working_ips
-
-
-if __name__ == "__main__":
-
-    fire.Fire(alter_globals)
-
-    main(proxies = ips)
-
-    printer()
-
-    if GENERATE_CSV == True:
-        generate_csv()
-
+if __name__ == '__main__':
+    fire.Fire(main)
