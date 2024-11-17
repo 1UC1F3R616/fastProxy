@@ -315,13 +315,21 @@ class TestFastProxy:
             mock_fetch.assert_called_once()
 
     def test_error_handling_edge_cases(self):
+        """Test error handling edge cases"""
         # Test with invalid proxy format
         proxy_list = ['invalid:format']
-        with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
-            mock_fetch.return_value = []
-            result = main(proxies=proxy_list)
-            assert isinstance(result, list)
-            assert len(result) == 0
+        with pytest.raises(ValueError, match="Port must be a valid number"):
+            main(proxies=proxy_list)
+
+        # Test with invalid port number
+        proxy_list = ['127.0.0.1:70000']
+        with pytest.raises(ValueError, match="Port number must be between 1 and 65535"):
+            main(proxies=proxy_list)
+
+        # Test with non-numeric port
+        proxy_list = ['127.0.0.1:abc']
+        with pytest.raises(ValueError, match="Port must be a valid number"):
+            main(proxies=proxy_list)
 
         # Test with empty proxy list
         proxy_list = []
@@ -568,11 +576,8 @@ class TestFastProxy:
 
         # Test with mixed proxy formats
         proxies = ['127.0.0.1:8080', 'invalid:format']
-        with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
-            mock_fetch.return_value = []
-            result = main(proxies=proxies)
-            assert isinstance(result, list)
-            assert len(result) == 0
+        with pytest.raises(ValueError, match="Port must be a valid number"):
+            main(proxies=proxies)
 
         # Test with non-list proxies
         with pytest.raises(TypeError):

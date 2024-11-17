@@ -269,11 +269,15 @@ def main(proxies=None):
                 try:
                     port_num = int(port)
                     if port_num < 1 or port_num > 65535:
-                        raise IndexError("Port number must be between 1 and 65535")
-                except ValueError:
-                    raise IndexError("Port must be a valid number")
+                        raise ValueError("Port number must be between 1 and 65535")
+                except ValueError as e:
+                    if "Port number must be between" in str(e):
+                        raise
+                    raise ValueError("Port must be a valid number")
                 valid_proxies.append({'ip': ip, 'port': port})
-            except ValueError:
+            except (ValueError, IndexError) as e:
+                if isinstance(e, ValueError):
+                    raise
                 raise IndexError("Invalid proxy format. Expected format: 'ip:port'")
 
         return fetch_proxies(proxies=valid_proxies)
