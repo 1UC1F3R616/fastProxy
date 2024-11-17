@@ -107,3 +107,5 @@ tester1.py
 working_ips.csv
 all_proxies.csv
 .vscode
+
+*working_proxies.csv
