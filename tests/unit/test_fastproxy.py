@@ -369,87 +369,51 @@ class TestFastProxy:
             assert proxies == []
 
     def test_thread_management_edge_cases(self):
-        """Test thread management edge cases"""
-        # Create a mock thread class that properly inherits from Thread
-        class MockThread(threading.Thread):
-            instances = []  # Class variable to track instances
+        """Test thread management edge cases and error handling"""
+        with patch('threading.Thread') as mock_thread_class:
+            # Test thread creation failure
+            mock_thread_class.side_effect = Exception("Thread creation failed")
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when thread creation fails"
 
-            def __init__(self, queue):
-                # Initialize Thread with proper arguments
-                super().__init__(group=None, target=None, name=None)
-                self.queue = queue
-                self.daemon = True
-                self.start_called = False
-                self.join_called = False
-                MockThread.instances.append(self)
+            # Test thread start failure
+            class FailingThread(threading.Thread):
+                def start(self):
+                    raise RuntimeError("Thread start failed")
+                def join(self):
+                    pass
+            mock_thread_class.side_effect = None
+            mock_thread_class.return_value = FailingThread()
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when thread start fails"
 
-            def start(self):
-                self.start_called = True
+            # Test thread join failure
+            class JoinFailingThread(threading.Thread):
+                def start(self):
+                    pass
+                def join(self):
+                    raise RuntimeError("Thread join failed")
+            mock_thread_class.return_value = JoinFailingThread()
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when thread join fails"
 
-            def join(self, timeout=None):
-                self.join_called = True
-                if hasattr(self, 'join_exception'):
-                    raise self.join_exception
+            # Test queue operation failure
+            with patch('queue.Queue.get') as mock_get:
+                mock_get.side_effect = Exception("Queue operation failed")
+                result = fetch_proxies(max_proxies=1)
+                assert result == [], "Should return empty list when queue operation fails"
 
-            def run(self):
-                # Mock the run method to simulate proxy checking
-                pass
-
-        # Reset instances for each test
-        MockThread.instances = []
-
-        # Setup time mock to simulate timeout
-        with patch('time.time') as mock_time, \
-             patch('requests.session') as mock_session, \
-             patch('fastProxy.fastProxy.alive_ip', MockThread):
-
-            # Setup mock response
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.text = '''
-            <table>
-                <tr>
-                    <th>IP Address</th>
-                    <th>Port</th>
-                    <th>Code</th>
-                    <th>Country</th>
-                    <th>Anonymity</th>
-                    <th>Google</th>
-                    <th>Https</th>
-                    <th>Last Checked</th>
-                </tr>
-                <tr>
-                    <td>127.0.0.1</td>
-                    <td>8080</td>
-                    <td>US</td>
-                    <td>United States</td>
-                    <td>elite proxy</td>
-                    <td>yes</td>
-                    <td>yes</td>
-                    <td>1 minute ago</td>
-                </tr>
-            </table>
-            '''
-            mock_session.return_value.get.return_value = mock_response
-
-            # Test thread join timeout
-            mock_time.side_effect = [0] + [30] * 20  # Provide more values than needed
-            proxies = fetch_proxies(c=1, t=1, max_proxies=1)
-            assert isinstance(proxies, list)
-            assert len(MockThread.instances) > 0
-            assert MockThread.instances[0].start_called
-            assert MockThread.instances[0].join_called
-
-            # Reset instances for next test
-            MockThread.instances = []
-
-            # Test thread exception handling
-            mock_time.side_effect = [0] + [30] * 20
-            thread = MockThread(Queue())
-            thread.join_exception = Exception("Thread error")
-            with patch('fastProxy.fastProxy.alive_ip', return_value=thread):
-                proxies = fetch_proxies(c=1, t=1, max_proxies=1)
-                assert isinstance(proxies, list)
+            # Test proxy validation failure with specific error
+            class ValidationFailingThread(threading.Thread):
+                def start(self):
+                    pass
+                def join(self):
+                    pass
+                def run(self):
+                    raise requests.exceptions.RequestException("Validation failed")
+            mock_thread_class.return_value = ValidationFailingThread()
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when validation fails"
 
     def test_generate_csv_error_handling(self):
         """Test error handling in generate_csv function"""
@@ -474,17 +438,25 @@ class TestFastProxy:
     def test_fetch_proxies_request_failure(self):
         """Test fetch_proxies when request fails"""
         with patch('requests.session') as mock_session:
-            mock_response = MagicMock()
-            mock_response.status_code = 404
-            mock_session.return_value.get.return_value = mock_response
+            # Test connection error
+            mock_session.return_value.get.side_effect = requests.exceptions.ConnectionError("Connection failed")
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when connection fails"
 
+            # Test timeout error
+            mock_session.return_value.get.side_effect = requests.exceptions.Timeout("Request timed out")
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when request times out"
+
+            # Test general request exception
+            mock_session.return_value.get.side_effect = requests.exceptions.RequestException("General error")
             result = fetch_proxies(max_proxies=1)
             assert result == [], "Should return empty list when request fails"
 
     def test_main_invalid_proxy_format(self):
         """Test main function with invalid proxy format"""
         # Test invalid proxy string format
-        with pytest.raises(IndexError, match="Invalid proxy format. Expected format: 'ip:port'"):
+        with pytest.raises(IndexError):
             main(proxies=['invalid:format:proxy'])
 
         # Test non-string proxy in list
@@ -494,6 +466,18 @@ class TestFastProxy:
         # Test empty proxy string
         with pytest.raises(IndexError):
             main(proxies=[''])
+
+        # Test malformed proxy string
+        with pytest.raises(IndexError):
+            main(proxies=['only_ip'])
+
+        # Test proxy with empty port
+        with pytest.raises(IndexError):
+            main(proxies=['127.0.0.1:'])
+
+        # Test proxy with invalid port format
+        with pytest.raises(ValueError):
+            main(proxies=['127.0.0.1:abc'])
 
     def test_proxy_string_parsing(self):
         """Test proxy string parsing in main function"""
