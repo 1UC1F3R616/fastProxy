@@ -124,7 +124,8 @@ class TestFastProxy(unittest.TestCase):
     @patch('requests.get')
     def test_alive_ip_check_proxy(self, mock_get):
         queue = Queue()
-        thread = alive_ip(queue)
+        working_proxies = []
+        thread = alive_ip(queue, working_proxies)
         proxy_data = {
             'ip': '127.0.0.1',
             'port': '8080',
@@ -253,6 +254,7 @@ class TestFastProxy(unittest.TestCase):
                 super().__init__(group=None, target=None, name=None)
                 self.queue = queue
                 self.daemon = True
+                self.working_proxies = []
                 self.start_called = False
                 self.join_called = False
 
@@ -421,6 +423,7 @@ class TestFastProxy(unittest.TestCase):
 
         class MockThread:
             def __init__(self):
+                self.working_proxies = []
                 pass
             def start(self):
                 pass
@@ -456,7 +459,7 @@ class TestFastProxy(unittest.TestCase):
         # Test CSV generation with directory creation error
         with patch('os.path.exists', return_value=False), \
              patch('os.makedirs', side_effect=OSError("Permission denied")):
-            generate_csv()
+            generate_csv([])
             assert True  # Should not raise exception
 
     def test_thread_management_edge_cases(self):
@@ -638,7 +641,8 @@ class TestFastProxy(unittest.TestCase):
             'port': '8080',
             'https': True
         }
-        thread = alive_ip(Queue())
+        working_proxies = []
+        thread = alive_ip(Queue(), working_proxies)
 
         # Test HTTPS validation success
         with patch('requests.get') as mock_get:
@@ -721,6 +725,7 @@ class TestFastProxy(unittest.TestCase):
                 super().__init__()
                 self.queue = queue
                 self.daemon = True
+                self.working_proxies = []
 
             def start(self):
                 pass
