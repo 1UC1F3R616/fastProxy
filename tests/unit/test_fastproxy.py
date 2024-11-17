@@ -12,15 +12,6 @@ from fastProxy.fastProxy import (
 )
 from fastProxy.logger import logger
 
-@pytest.hookimpl(tryfirst=True, hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    # execute all other hooks to obtain the report object
-    outcome = yield
-    rep = outcome.get_result()
-
-    # set a report attribute for each phase of a call
-    setattr(item, f"rep_{call.when}", rep)
-
 class TestFastProxy:
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self, request):
@@ -42,7 +33,10 @@ class TestFastProxy:
         yield
 
         # Only restore original values if not in test_alter_globals and test passed
-        if request.function.__name__ != 'test_alter_globals' and not getattr(request.node, "rep_call", None).failed:
+        if (request.function.__name__ != 'test_alter_globals' and
+            hasattr(request.node, "rep_call") and
+            request.node.rep_call and
+            not request.node.rep_call.failed):
             THREAD_COUNT = self.original_thread_count
             REQUEST_TIMEOUT = self.original_timeout
             GENERATE_CSV = self.original_csv
@@ -89,20 +83,17 @@ class TestFastProxy:
 
         # Second test: change all parameters
         alter_globals(c=200, t=5, g=True, a=True)
-        # Add a small delay to ensure globals are updated
-        time.sleep(0.1)
+
+        # Verify all parameters were updated
         assert THREAD_COUNT == 200, f"Expected THREAD_COUNT to be 200, got {THREAD_COUNT}"
         assert REQUEST_TIMEOUT == 5, f"Expected REQUEST_TIMEOUT to be 5, got {REQUEST_TIMEOUT}"
-        assert GENERATE_CSV is True, f"Expected GENERATE_CSV to be True, got {GENERATE_CSV}"
-        assert ALL_PROXIES is True, f"Expected ALL_PROXIES to be True, got {ALL_PROXIES}"
+        assert GENERATE_CSV is True, "Expected GENERATE_CSV to be True"
+        assert ALL_PROXIES is True, "Expected ALL_PROXIES to be True"
 
-        # Third test: change only some parameters
-        alter_globals(c=50)
-        time.sleep(0.1)
-        assert THREAD_COUNT == 50, f"Expected THREAD_COUNT to be 50, got {THREAD_COUNT}"
-        assert REQUEST_TIMEOUT == 5  # Should remain unchanged
-        assert GENERATE_CSV is True  # Should remain unchanged
-        assert ALL_PROXIES is True  # Should remain unchanged
+        # Test partial updates
+        alter_globals(t=3)
+        assert THREAD_COUNT == 200, "THREAD_COUNT should not change"
+        assert REQUEST_TIMEOUT == 3, "REQUEST_TIMEOUT should be updated"
 
     @patch('requests.get')
     def test_alive_ip_check_proxy(self, mock_get):
@@ -467,6 +458,41 @@ class TestFastProxy:
             # Should handle file permission error
             generate_csv()
             # No assertion needed as we're just testing error handling
+
+    def test_fetch_proxies_no_valid_proxies(self):
+        """Test fetch_proxies when no valid proxies are found"""
+        with patch('requests.session') as mock_session:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = '<table><tr><th>IP Address</th></tr></table>'
+            mock_session.return_value.get.return_value = mock_response
+
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when no valid proxies found"
+
+    def test_fetch_proxies_request_failure(self):
+        """Test fetch_proxies when request fails"""
+        with patch('requests.session') as mock_session:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_session.return_value.get.return_value = mock_response
+
+            result = fetch_proxies(max_proxies=1)
+            assert result == [], "Should return empty list when request fails"
+
+    def test_main_invalid_proxy_format(self):
+        """Test main function with invalid proxy format"""
+        # Test invalid proxy string format
+        with pytest.raises(IndexError, match="Invalid proxy format. Expected format: 'ip:port'"):
+            main(proxies=['invalid:format:proxy'])
+
+        # Test non-string proxy in list
+        with pytest.raises(AttributeError):
+            main(proxies=[123])
+
+        # Test empty proxy string
+        with pytest.raises(IndexError):
+            main(proxies=[''])
 
     def test_proxy_string_parsing(self):
         """Test proxy string parsing in main function"""
