@@ -26,24 +26,26 @@ alive_queue = Queue()
 
 def alter_globals(c=None, t=None, g=None, a=None):
     """Alter global variables based on parameters"""
-    global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+    # Get module reference
+    import sys
+    module = sys.modules['fastProxy.fastProxy']
 
     # Store current values for debugging
-    old_timeout = REQUEST_TIMEOUT
-    old_thread_count = THREAD_COUNT
+    old_timeout = module.REQUEST_TIMEOUT
+    old_thread_count = module.THREAD_COUNT
 
     # Update values if provided
     if c is not None:
-        globals()['THREAD_COUNT'] = c
+        setattr(module, 'THREAD_COUNT', c)
         logger.debug(f"Updated THREAD_COUNT from {old_thread_count} to {c}")
     if t is not None:
-        globals()['REQUEST_TIMEOUT'] = t
+        setattr(module, 'REQUEST_TIMEOUT', t)
         logger.debug(f"Updated REQUEST_TIMEOUT from {old_timeout} to {t}")
     if g is not None:
-        globals()['GENERATE_CSV'] = g
+        setattr(module, 'GENERATE_CSV', g)
         logger.debug(f"Updated GENERATE_CSV to {g}")
     if a is not None:
-        globals()['ALL_PROXIES'] = a
+        setattr(module, 'ALL_PROXIES', a)
         logger.debug(f"Updated ALL_PROXIES to {a}")
 
 class alive_ip(threading.Thread):

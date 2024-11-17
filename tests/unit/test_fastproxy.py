@@ -5,10 +5,11 @@ from queue import Queue
 import threading
 import time
 import os
+import sys
+from fastProxy import fastProxy
 from fastProxy.fastProxy import (
     alter_globals, alive_ip, fetch_proxies, generate_csv,
-    printer, main, THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV,
-    ALL_PROXIES, alive_queue
+    printer, main
 )
 from fastProxy.logger import logger
 
@@ -16,19 +17,19 @@ class TestFastProxy:
     @pytest.fixture(autouse=True)
     def setup_and_teardown(self, request):
         """Reset globals before and after each test"""
-        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+        from fastProxy import fastProxy as fp
 
         # Store original values
-        self.original_thread_count = THREAD_COUNT
-        self.original_timeout = REQUEST_TIMEOUT
-        self.original_csv = GENERATE_CSV
-        self.original_all = ALL_PROXIES
+        self.original_thread_count = fp.THREAD_COUNT
+        self.original_timeout = fp.REQUEST_TIMEOUT
+        self.original_csv = fp.GENERATE_CSV
+        self.original_all = fp.ALL_PROXIES
 
         # Reset to default values before each test
-        THREAD_COUNT = 100
-        REQUEST_TIMEOUT = 4
-        GENERATE_CSV = False
-        ALL_PROXIES = False
+        fp.THREAD_COUNT = 100
+        fp.REQUEST_TIMEOUT = 4
+        fp.GENERATE_CSV = False
+        fp.ALL_PROXIES = False
 
         yield
 
@@ -37,10 +38,10 @@ class TestFastProxy:
             hasattr(request.node, "rep_call") and
             request.node.rep_call and
             not request.node.rep_call.failed):
-            THREAD_COUNT = self.original_thread_count
-            REQUEST_TIMEOUT = self.original_timeout
-            GENERATE_CSV = self.original_csv
-            ALL_PROXIES = self.original_all
+            fp.THREAD_COUNT = self.original_thread_count
+            fp.REQUEST_TIMEOUT = self.original_timeout
+            fp.GENERATE_CSV = self.original_csv
+            fp.ALL_PROXIES = self.original_all
 
     @pytest.fixture
     def mock_proxy_data(self):
@@ -73,27 +74,27 @@ class TestFastProxy:
 
     def test_alter_globals(self):
         """Test altering global variables"""
-        global THREAD_COUNT, REQUEST_TIMEOUT, GENERATE_CSV, ALL_PROXIES
+        from fastProxy import fastProxy as fp
 
         # First test: verify initial state
-        assert THREAD_COUNT == 100
-        assert REQUEST_TIMEOUT == 4
-        assert GENERATE_CSV is False
-        assert ALL_PROXIES is False
+        assert fp.THREAD_COUNT == 100
+        assert fp.REQUEST_TIMEOUT == 4
+        assert fp.GENERATE_CSV is False
+        assert fp.ALL_PROXIES is False
 
         # Second test: change all parameters
         alter_globals(c=200, t=5, g=True, a=True)
 
         # Verify all parameters were updated
-        assert THREAD_COUNT == 200, f"Expected THREAD_COUNT to be 200, got {THREAD_COUNT}"
-        assert REQUEST_TIMEOUT == 5, f"Expected REQUEST_TIMEOUT to be 5, got {REQUEST_TIMEOUT}"
-        assert GENERATE_CSV is True, "Expected GENERATE_CSV to be True"
-        assert ALL_PROXIES is True, "Expected ALL_PROXIES to be True"
+        assert fp.THREAD_COUNT == 200, f"Expected THREAD_COUNT to be 200, got {fp.THREAD_COUNT}"
+        assert fp.REQUEST_TIMEOUT == 5, f"Expected REQUEST_TIMEOUT to be 5, got {fp.REQUEST_TIMEOUT}"
+        assert fp.GENERATE_CSV is True, "Expected GENERATE_CSV to be True"
+        assert fp.ALL_PROXIES is True, "Expected ALL_PROXIES to be True"
 
         # Test partial updates
         alter_globals(t=3)
-        assert THREAD_COUNT == 200, "THREAD_COUNT should not change"
-        assert REQUEST_TIMEOUT == 3, "REQUEST_TIMEOUT should be updated"
+        assert fp.THREAD_COUNT == 200, "THREAD_COUNT should not change"
+        assert fp.REQUEST_TIMEOUT == 3, "REQUEST_TIMEOUT should be updated"
 
     @patch('requests.get')
     def test_alive_ip_check_proxy(self, mock_get):
