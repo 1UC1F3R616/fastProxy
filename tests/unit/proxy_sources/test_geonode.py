@@ -46,7 +46,7 @@ def test_fetch_success(requests_mock):
         'port': '3128',
         'https': 'no',
         'country': 'Germany',
-        'anonymity': 'transparent'
+        'anonymity': 'transparent proxy'
     }
 
 def test_fetch_empty_response(requests_mock):
@@ -85,6 +85,88 @@ def test_fetch_connection_error(requests_mock):
     """Test handling of connection error"""
     source = GeoNodeSource()
     requests_mock.get(source.API_URL, exc=requests.exceptions.ConnectionError)
+
+    proxies = source.fetch()
+    assert len(proxies) == 0
+
+def test_fetch_different_protocol_formats(requests_mock):
+    """Test handling of different protocol formats"""
+    source = GeoNodeSource()
+    response = {
+        "data": [
+            {
+                "ip": "1.1.1.1",
+                "port": 8080,
+                "protocols": "http,https",  # String format
+                "country": "US",
+                "anonymityLevel": "elite"
+            },
+            {
+                "ip": "2.2.2.2",
+                "port": 8081,
+                "protocols": 123,  # Invalid format
+                "country": "UK",
+                "anonymityLevel": "anonymous"
+            }
+        ]
+    }
+    requests_mock.get(source.API_URL, json=response)
+
+    proxies = source.fetch()
+    assert len(proxies) == 2
+    assert proxies[0]['https'] == 'yes'
+    assert proxies[1]['https'] == 'no'
+
+def test_fetch_different_anonymity_levels(requests_mock):
+    """Test handling of different anonymity levels"""
+    source = GeoNodeSource()
+    response = {
+        "data": [
+            {
+                "ip": "1.1.1.1",
+                "port": 8080,
+                "protocols": ["http"],
+                "country": "US",
+                "anonymityLevel": "elite_proxy"  # With underscore
+            },
+            {
+                "ip": "2.2.2.2",
+                "port": 8081,
+                "protocols": ["http"],
+                "country": "UK",
+                "anonymityLevel": None  # Missing anonymity
+            }
+        ]
+    }
+    requests_mock.get(source.API_URL, json=response)
+
+    proxies = source.fetch()
+    assert len(proxies) == 2
+    assert proxies[0]['anonymity'] == 'elite proxy'
+    assert proxies[1]['anonymity'] == 'unknown proxy'
+
+def test_fetch_malformed_data(requests_mock):
+    """Test handling of malformed data"""
+    source = GeoNodeSource()
+    response = {
+        "data": [
+            {
+                "ip": "",  # Empty IP
+                "port": "invalid",  # Invalid port
+                "protocols": ["http"],
+                "country": "US",
+                "anonymityLevel": "elite"
+            },
+            {
+                "ip": None,  # None IP
+                "port": None,  # None port
+                "protocols": ["http"],
+                "country": "UK",
+                "anonymityLevel": "anonymous"
+            }
+        ]
+    }
+    requests_mock.get(source.API_URL, json=response)
 
     proxies = source.fetch()
     assert len(proxies) == 0

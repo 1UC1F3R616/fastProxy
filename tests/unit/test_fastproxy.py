@@ -269,7 +269,7 @@ class TestFastProxy(unittest.TestCase):
                 pass
 
         # Setup time mock to simulate timeout - provide enough values for all time.time() calls
-        mock_time.side_effect = [0] + [30] * 20  # Provide more values than needed
+        mock_time.side_effect = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] * 10
 
         with patch('fastProxy.fastProxy.alive_ip', MockThread), \
              patch('requests.session') as mock_session:

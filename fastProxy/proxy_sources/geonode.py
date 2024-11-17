@@ -19,48 +19,64 @@ class GeoNodeSource(ProxySource):
     def fetch(self) -> List[Dict[str, str]]:
         """Fetch proxies from geonode.com API"""
         proxies = []
-        response = self._make_request(self.API_URL)
-
-        if not response:
-            return proxies
-
         try:
-            data = response.json()
-            logger.debug(f"Received response from geonode.com: {data.keys()}")
-
-            if 'data' not in data:
-                logger.error("Invalid response format from geonode.com API")
+            response = self._make_request(self.API_URL)
+            if not response:
+                logger.error("No response received from geonode.com API")
                 return proxies
 
-            for proxy in data['data']:
-                try:
-                    protocols = proxy.get('protocols', [])
-                    if isinstance(protocols, str):
-                        protocols = protocols.lower().split(',')
-                    elif isinstance(protocols, list):
-                        protocols = [p.lower() for p in protocols]
-                    else:
-                        protocols = []
+            try:
+                data = response.json()
+                logger.debug(f"Received response from geonode.com: {data.keys()}")
 
-                    proxy_entry = {
-                        'ip': proxy.get('ip', ''),
-                        'port': str(proxy.get('port', '')),
-                        'country': proxy.get('country', ''),
-                        'anonymity': proxy.get('anonymityLevel', 'unknown').lower().replace('_', ' '),
-                        'https': 'yes' if 'https' in protocols else 'no'
-                    }
-                    if proxy_entry['ip'] and proxy_entry['port']:
+                if 'data' not in data:
+                    logger.error("Invalid response format from geonode.com API")
+                    return proxies
+
+                for proxy in data['data']:
+                    try:
+                        protocols = proxy.get('protocols', [])
+                        if isinstance(protocols, str):
+                            protocols = protocols.lower().split(',')
+                        elif isinstance(protocols, list):
+                            protocols = [p.lower() for p in protocols]
+                        else:
+                            logger.warning(f"Unexpected protocols format: {protocols}")
+                            protocols = []
+
+                        anonymity = proxy.get('anonymityLevel', 'unknown').lower()
+                        anonymity = anonymity.replace('_', ' ')
+                        if not anonymity.endswith(' proxy'):
+                            anonymity += ' proxy'
+
+                        proxy_entry = {
+                            'ip': proxy.get('ip', ''),
+                            'port': str(proxy.get('port', '')),
+                            'country': proxy.get('country', ''),
+                            'anonymity': anonymity,
+                            'https': 'yes' if 'https' in protocols else 'no'
+                        }
+
+                        # Validate required fields
+                        if not proxy_entry['ip'] or not proxy_entry['port']:
+                            logger.warning(f"Skipping proxy with missing required fields: {proxy_entry}")
+                            continue
+
                         proxies.append(proxy_entry)
-                except Exception as e:
-                    logger.debug(f"Error processing proxy entry: {str(e)}")
-                    continue
+                    except Exception as e:
+                        logger.debug(f"Error processing proxy entry: {str(e)}", exc_info=True)
+                        continue
 
-            logger.info(f"Found {len(proxies)} proxies from geonode.com")
+                logger.info(f"Found {len(proxies)} proxies from geonode.com")
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Error parsing geonode.com API response: {str(e)}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing geonode.com API response: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error processing geonode.com API response: {str(e)}")
+                logger.debug(f"Error details: {str(e)}", exc_info=True)
+
         except Exception as e:
-            logger.error(f"Error processing geonode.com API response: {str(e)}")
+            logger.error(f"Error fetching from geonode.com: {str(e)}")
             logger.debug(f"Error details: {str(e)}", exc_info=True)
 
         return proxies
