@@ -46,8 +46,9 @@ class FreeProxyListSource(ProxySource):
                         'https': cols[6].text.strip().lower(),
                         'last_checked': cols[7].text.strip()
                     }
-                    if proxy['ip'] and proxy['port'].isdigit():
-                        proxies.append(proxy)
+                    # Debug log to see what's being filtered
+                    logger.debug(f"Processing proxy: {proxy}")
+                    proxies.append(proxy)  # Remove validation for now to see what's happening
 
             logger.info(f"Found {len(proxies)} proxies from free-proxy-list.net")
 
