@@ -12,11 +12,14 @@ from fastProxy.fastProxy import (
 )
 from fastProxy.logger import logger
 
-@pytest.fixture(autouse=True)
-def _pass_fixture(request):
-    """Store test results for use in setup_and_teardown"""
-    yield
-    request.node.rep_call = getattr(request.node, 'call', None)
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    # execute all other hooks to obtain the report object
+    outcome = yield
+    rep = outcome.get_result()
+
+    # set a report attribute for each phase of a call
+    setattr(item, f"rep_{call.when}", rep)
 
 class TestFastProxy:
     @pytest.fixture(autouse=True)
@@ -36,11 +39,10 @@ class TestFastProxy:
         GENERATE_CSV = False
         ALL_PROXIES = False
 
-        # Run the test
         yield
 
-        # Only restore original values if not in test_alter_globals or if test failed
-        if request.function.__name__ != 'test_alter_globals' and not request.node.rep_call.failed:
+        # Only restore original values if not in test_alter_globals and test passed
+        if request.function.__name__ != 'test_alter_globals' and not getattr(request.node, "rep_call", None).failed:
             THREAD_COUNT = self.original_thread_count
             REQUEST_TIMEOUT = self.original_timeout
             GENERATE_CSV = self.original_csv
@@ -451,12 +453,85 @@ class TestFastProxy:
 
             # Test thread exception handling
             mock_time.side_effect = [0] + [30] * 20
-            proxies = fetch_proxies(c=1, t=1, max_proxies=1)
-            assert isinstance(proxies, list)
-            assert len(MockThread.instances) > 0
-            thread = MockThread.instances[0]
+            thread = MockThread(Queue())
             thread.join_exception = Exception("Thread error")
-            thread.join()  # This should raise the exception but be caught by fetch_proxies
+            with patch('fastProxy.fastProxy.alive_ip', return_value=thread):
+                proxies = fetch_proxies(c=1, t=1, max_proxies=1)
+                assert isinstance(proxies, list)
+
+    def test_generate_csv_error_handling(self):
+        """Test error handling in generate_csv function"""
+        # Mock os.path.exists to return True
+        with patch('os.path.exists', return_value=True), \
+             patch('builtins.open', side_effect=PermissionError("Permission denied")):
+            # Should handle file permission error
+            generate_csv()
+            # No assertion needed as we're just testing error handling
+
+    def test_proxy_string_parsing(self):
+        """Test proxy string parsing in main function"""
+        # Test valid proxy strings
+        proxies = ['127.0.0.1:8080', '192.168.1.1:3128']
+        result = main(proxies=proxies)
+        assert isinstance(result, list)
+
+        # Test invalid proxy strings
+        with pytest.raises(IndexError, match="Invalid proxy format. Expected format: 'ip:port'"):
+            main(proxies=['invalid_proxy'])
+
+        # Test invalid proxies type
+        with pytest.raises(TypeError, match="proxies must be a list"):
+            main(proxies="127.0.0.1:8080")
+
+    def test_https_proxy_validation(self):
+        """Test HTTPS proxy validation"""
+        proxy_data = {
+            'ip': '127.0.0.1',
+            'port': '8080',
+            'code': 'US',
+            'country': 'United States',
+            'anonymity': 'elite',
+            'google': True,
+            'https': True,
+            'last_checked': '1 minute ago'
+        }
+
+        # Mock requests.get for both HTTP and HTTPS
+        with patch('requests.get') as mock_get:
+            # Mock HTTP failure
+            mock_get.side_effect = [
+                requests.exceptions.RequestException("HTTP failed"),
+                MagicMock(status_code=200)  # HTTPS success
+            ]
+
+            thread = alive_ip(Queue())
+            result = thread.check_proxy(proxy_data)
+            assert result is True
+            assert proxy_data['https'] is True
+
+            # Mock both HTTP and HTTPS failure
+            mock_get.side_effect = [
+                requests.exceptions.RequestException("HTTP failed"),
+                requests.exceptions.RequestException("HTTPS failed")
+            ]
+
+            result = thread.check_proxy(proxy_data)
+            assert result is False
+
+    def test_csv_generation_paths(self):
+        """Test CSV generation paths"""
+        # Test CSV generation when directory exists
+        with patch('os.path.exists', return_value=True), \
+             patch('builtins.open', mock_open()) as mock_file:
+            generate_csv()
+            mock_file.assert_called_once_with('proxy_list/working_proxies.csv', 'w', newline='')
+
+        # Test CSV generation when directory doesn't exist
+        with patch('os.path.exists', return_value=False), \
+             patch('os.makedirs') as mock_makedirs, \
+             patch('builtins.open', mock_open()):
+            generate_csv()
+            mock_makedirs.assert_called_once_with('proxy_list')
 
     def test_main_edge_cases(self):
         """Test main function edge cases"""

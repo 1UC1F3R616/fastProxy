@@ -30,17 +30,21 @@ def alter_globals(c=None, t=None, g=None, a=None):
 
     # Store current values for debugging
     old_timeout = REQUEST_TIMEOUT
+    old_thread_count = THREAD_COUNT
 
     # Update values if provided
     if c is not None:
         THREAD_COUNT = c
+        logger.debug(f"Updated THREAD_COUNT from {old_thread_count} to {c}")
     if t is not None:
         REQUEST_TIMEOUT = t
         logger.debug(f"Updated REQUEST_TIMEOUT from {old_timeout} to {t}")
     if g is not None:
         GENERATE_CSV = g
+        logger.debug(f"Updated GENERATE_CSV to {g}")
     if a is not None:
         ALL_PROXIES = a
+        logger.debug(f"Updated ALL_PROXIES to {a}")
 
 class alive_ip(threading.Thread):
     """Thread class for checking proxy status"""
