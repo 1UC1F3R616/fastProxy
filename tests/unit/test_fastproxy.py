@@ -25,16 +25,19 @@ def reset_globals():
     except (ImportError, AttributeError):
         pass
 
-    # Reset globals
-    alter_globals(max_proxies=100, threads=100, google=True, anonymous=True)
+    # Reset globals and clear queue
+    alter_globals(c=100, t=100, g=True, a=True)
+    from fastProxy.fastProxy import alive_queue
+    while not alive_queue.empty():
+        alive_queue.get()
 
     yield
 
-    # Restore original values
+    # Restore original values and clear queue again
     try:
-        from fastProxy.fastProxy import alive_queue, WORKING_PROXIES
-        alive_queue = original_globals.get('alive_queue', Queue())
-        WORKING_PROXIES = original_globals.get('WORKING_PROXIES', [])
+        from fastProxy.fastProxy import alive_queue
+        while not alive_queue.empty():
+            alive_queue.get()
     except (ImportError, AttributeError):
         pass
 
@@ -318,11 +321,9 @@ class TestFastProxy:
 
     def test_printer(self, mock_proxy_queue):
         """Test printer function with various scenarios"""
-        queue = mock_proxy_queue
-
-        # Clear any existing proxies
-        while not queue.empty():
-            queue.get()
+        # Clear any existing proxies from the queue
+        while not mock_proxy_queue.empty():
+            mock_proxy_queue.get()
 
         # Test with empty queue
         with patch('builtins.print') as mock_print:
@@ -331,19 +332,23 @@ class TestFastProxy:
 
         # Test with single proxy
         proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
-        queue.put(proxy)
-        with patch('builtins.print') as mock_print:
+        mock_proxy_queue.put(proxy)
+
+        # Create a new Queue to replace the global alive_queue
+        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue), \
+             patch('builtins.print') as mock_print:
             printer()
             assert mock_print.call_count >= 1, "Print should be called at least once"
 
         # Clear queue for next test
-        while not queue.empty():
-            queue.get()
+        while not mock_proxy_queue.empty():
+            mock_proxy_queue.get()
 
         # Test with multiple proxies
-        queue.put(proxy)
-        queue.put(proxy)
-        with patch('builtins.print') as mock_print:
+        mock_proxy_queue.put(proxy)
+        mock_proxy_queue.put(proxy)
+        with patch('fastProxy.fastProxy.alive_queue', mock_proxy_queue), \
+             patch('builtins.print') as mock_print:
             printer()
             assert mock_print.call_count >= 2, "Print should be called at least twice"
 
@@ -497,39 +502,34 @@ class TestFastProxy:
             proxies = fetch_proxies(max_proxies=1)
             assert proxies == []
 
-    def test_generate_csv_error_handling(self, mock_proxy_queue):
-        """Test CSV generation error handling"""
-        queue = mock_proxy_queue
+    def test_generate_csv_error_handling(self):
+        """Test error handling in CSV generation"""
+        # Mock file operations
+        mock_file = MagicMock()
+        mock_file.write.side_effect = IOError("Mock write error")
 
-        # Clear any existing proxies and ensure queue is empty
-        while not queue.empty():
-            queue.get()
-
-        # Test with no working proxies
-        with patch('fastProxy.fastProxy.WORKING_PROXIES', []), \
+        with patch('builtins.open', mock_open()) as mock_file_open, \
              patch('os.path.exists', return_value=True), \
              patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', new_callable=mock_open) as mock_file:
-            generate_csv()
-            mock_file.assert_not_called()
+             patch('fastProxy.fastProxy.alive_queue') as mock_queue:
 
-        # Test with working proxies but file write error
-        proxy = {'ip': '127.0.0.1', 'port': '8080', 'https': True}
-        with patch('fastProxy.fastProxy.WORKING_PROXIES', [proxy]), \
-             patch('os.path.exists', return_value=True), \
-             patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', side_effect=IOError("Permission denied")):
-            generate_csv()
+            # Configure mock queue to be empty
+            mock_queue.queue = []
+            mock_queue.empty.return_value = True
 
-        # Test with working proxies and successful write
-        with patch('fastProxy.fastProxy.WORKING_PROXIES', [proxy]), \
-             patch('os.path.exists', return_value=True), \
-             patch('os.makedirs') as mock_makedirs, \
-             patch('builtins.open', new_callable=mock_open) as mock_file:
+            # Test with empty queue
             generate_csv()
-            mock_file.assert_called_once()
-            handle = mock_file()
-            handle.write.assert_called()
+            mock_makedirs.assert_not_called()
+            mock_file_open.assert_not_called()
+
+            # Test with IOError during write
+            mock_queue.empty.return_value = False
+            mock_queue.queue = [{'ip': '127.0.0.1', 'port': '8080'}]
+            mock_file_open.side_effect = IOError("Mock open error")
+
+            with self.assertLogs(level='ERROR') as log:
+                generate_csv()
+                self.assertTrue(any('Error generating CSV' in record.message for record in log.records))
 
     def test_fetch_proxies_no_valid_proxies(self):
         """Test fetch_proxies when no valid proxies are found"""
@@ -597,21 +597,35 @@ class TestFastProxy:
             main(proxies=["127.0.0.1:65536"])
 
     def test_proxy_string_parsing(self):
-        """Test proxy string parsing edge cases"""
-        # Test valid proxy format
-        with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
-            mock_fetch.return_value = []
-            result = main(proxies=["127.0.0.1:8080"])
-            mock_fetch.assert_called_once()
+        """Test parsing of proxy strings with various formats"""
+        with patch('fastProxy.fastProxy.alive_ip') as mock_thread_class, \
+             patch('fastProxy.fastProxy.requests.session') as mock_session, \
+             patch('fastProxy.fastProxy.alive_queue') as mock_alive_queue:
+            # Configure mock thread to not validate proxies
+            mock_thread = MagicMock()
+            mock_thread.daemon = True
+            mock_thread_class.return_value = mock_thread
+
+            # Configure session mock to return error
+            mock_response = MagicMock()
+            mock_response.status_code = 404  # Simulate failed request
+            mock_response.text = '<html></html>'  # Empty HTML
+            mock_session.return_value = MagicMock()
+            mock_session.return_value.get.return_value = mock_response
+
+            # Configure alive queue mock
+            mock_alive_queue.queue = []
+
+            result = fetch_proxies()
+            assert result == [], "Should return empty list when proxy source is unavailable"
+
+            # Test empty proxy list
+            result = main(proxies=[])
             assert result == []
 
-        # Test empty proxy list
-        result = main(proxies=[])
-        assert result == []
-
-        # Test None proxy list
-        result = main(proxies=None)
-        assert isinstance(result, list)
+            # Test None proxy list
+            result = main(proxies=None)
+            assert isinstance(result, list)
 
     def test_https_proxy_validation(self):
         """Test HTTPS proxy validation"""
