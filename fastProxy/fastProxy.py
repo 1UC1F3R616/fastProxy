@@ -1,14 +1,11 @@
 import fire
 import requests
-from bs4 import BeautifulSoup as soup
 import threading
-from queue import Queue, Empty
+from queue import Queue
 import csv
 import os
 from .logger import logger
 from datetime import datetime
-import time
-import pycountry
 from .proxy_sources.manager import ProxySourceManager
 
 # Constants
