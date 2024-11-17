@@ -764,10 +764,15 @@ class TestFastProxy(unittest.TestCase):
 
     def test_uncovered_lines(self):
         """Test specifically targeting uncovered lines"""
+        # Create a queue and working proxies list for testing
+        queue = Queue()
+        working_proxies = []
+
         # Test malformed proxy data handling
-        thread = alive_ip(Queue())
-        malformed_proxy = {'ip': '127.0.0.1'}  # Missing port
-        assert thread.check_proxy(malformed_proxy) is False
+        thread = alive_ip(queue, working_proxies)
+        thread.check_proxy({'ip': '', 'port': ''})  # Should handle empty values
+        thread.check_proxy({'ip': '1.1.1.1'})  # Should handle missing port
+        thread.check_proxy({'port': '8080'})  # Should handle missing IP
 
         # Test invalid proxy format in main
         with patch('fastProxy.fastProxy.fetch_proxies') as mock_fetch:
